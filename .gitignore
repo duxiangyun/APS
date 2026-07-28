@@ -5,9 +5,10 @@ __pycache__/
 *.pyd
 .Python
 
-# Database files
-*.db
+# Database files - keep Excel2DB/Data directory databases
+aps_model.db
 *.sqbpro
+!Excel2DB/data/aps_model.db
 
 # Output files - keep only reference results
 Output/
