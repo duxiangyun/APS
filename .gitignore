@@ -1,0 +1,38 @@
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Database files
+*.db
+*.sqbpro
+
+# Output files - keep only reference results
+Output/
+!Output/APS-JD-result-参考结果.xls
+
+# Excel2DB output files
+Excel2DB/Output/
+
+# Archive debug files
+Excel2DB/archive/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Virtual environments
+venv/
+env/
+*.egg-info/
+dist/
+build/
