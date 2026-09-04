@@ -5,10 +5,24 @@ __pycache__/
 *.pyd
 .Python
 
-# Database files - keep Excel2DB/Data directory databases
+# Database files - keep aps_or.db (main SQLite database)
 aps_model.db
 *.sqbpro
-!Excel2DB/data/aps_model.db
+!data/db/aps_or.db
+
+# Runtime artifacts
+aps_server.log
+aps_server.pid
+*.log.tmp
+
+# Result Excel files are regenerated per run
+data/output/
+
+# Archived legacy code (kept locally only)
+archive/
+
+# Trae IDE workspace files
+.trae/
 
 # Output files - keep only reference results
 Output/

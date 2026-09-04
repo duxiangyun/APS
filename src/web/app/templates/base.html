@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>APS 智能排产系统 - {{ table_label if table_label else '基础数据管理' }}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        .sidebar {
+            height: 100vh; background-color: #343a40; color: white;
+            width: 220px; position: fixed; left: 0; top: 0; z-index: 1000;
+            overflow-y: auto; overflow-x: hidden;
+        }
+        .sidebar::-webkit-scrollbar { width: 6px; }
+        .sidebar::-webkit-scrollbar-track { background: #2d3436; }
+        .sidebar::-webkit-scrollbar-thumb { background: #6c757d; border-radius: 3px; }
+        .sidebar::-webkit-scrollbar-thumb:hover { background: #adb5bd; }
+        .sidebar { scrollbar-width: thin; scrollbar-color: #6c757d #2d3436; }
+        .sidebar .nav-title {
+            padding: 15px; font-size: 1.05rem; font-weight: bold;
+            border-bottom: 1px solid #495057; white-space: nowrap;
+        }
+        .sidebar a, .sidebar .nav-item {
+            color: rgba(255,255,255,0.8); text-decoration: none;
+            padding: 8px 15px; display: flex; align-items: center; cursor: pointer;
+        }
+        .sidebar a:hover, .sidebar .nav-item:hover { background-color: #495057; color: white; }
+        .sidebar a.active { background-color: #0d6efd; color: white; }
+        .sidebar .nav-item i { margin-right: 8px; width: 16px; }
+        .sidebar .arrow { font-size: 0.75rem; margin-left: auto; transition: transform 0.3s; }
+        .sidebar .nav-item.collapsed .arrow { transform: rotate(-90deg); }
+        .sidebar .sub-menu { background-color: #2d3436; padding-left: 15px; display: none; }
+        .sidebar .sub-menu.show { display: block; }
+        .sidebar .nav-item.disabled { opacity: 0.4; pointer-events: none; }
+        .sidebar .menu-label { margin-left: 8px; }
+        .content-wrapper { margin-left: 220px; min-height: 100vh; }
+        .content { padding: 20px; }
+        .metric-card {
+            background-color: #f8f9fa; border-radius: 8px; padding: 20px; margin-bottom: 20px;
+            transition: transform 0.2s;
+        }
+        .metric-card:hover { transform: translateY(-2px); }
+        .metric-value { font-size: 2rem; font-weight: bold; color: #007bff; }
+        .metric-label { color: #6c757d; font-size: 0.9rem; }
+        .table-container { overflow-x: auto; }
+        .sortable { cursor: pointer; user-select: none; }
+        .sortable:hover { background-color: rgba(0,0,0,0.05); }
+        .page-btn {
+            padding: 4px 10px; margin: 0 2px; border: 1px solid #dee2e6;
+            background: white; border-radius: 4px; cursor: pointer; font-size: 0.85rem;
+        }
+        .page-btn:hover { background: #e9ecef; }
+        .page-btn.active { background: #0d6efd; color: white; border-color: #0d6efd; }
+        .page-btn:disabled { opacity: 0.45; cursor: not-allowed; background: #f8f9fa; }
+        .page-ellipsis { padding: 0 4px; color: #6c757d; }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="nav-title"><i class="fas fa-industry"></i> APS 智能排产系统</div>
+        <nav>
+            {% for menu in sidebar_menu %}
+                {% if menu.children %}
+                <div class="nav-item {% if menu.enabled and active_page in menu.children | map(attribute='key') | list %} {% else %} collapsed {% endif %} {% if not menu.enabled %} disabled {% endif %}"
+                     onclick="{% if menu.enabled %}toggleSubMenu('{{ menu.key }}'){% endif %}">
+                    <i class="fas {{ menu.icon }}"></i><span class="menu-label">{{ menu.label }}</span>
+                    <span class="arrow">▶</span>
+                </div>
+                <div id="{{ menu.key }}" class="sub-menu {% if menu.enabled and active_page in menu.children | map(attribute='key') | list %}show{% endif %}">
+                    {% for child in menu.children %}
+                    <a href="{{ child.url }}" {% if active_page == child.key %}class="active"{% endif %}>
+                        <i class="fas {{ child.icon }}"></i><span class="menu-label">{{ child.label }}</span>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <a href="#" class="nav-item {% if not menu.enabled %}disabled{% endif %}">
+                    <i class="fas {{ menu.icon }}"></i><span class="menu-label">{{ menu.label }}</span>
+                </a>
+                {% endif %}
+            {% endfor %}
+        </nav>
+    </div>
+    <div class="content-wrapper">
+        <div class="content">
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+    <script>
+    function toggleSubMenu(id) {
+        document.getElementById(id).classList.toggle('show');
+        event.currentTarget.classList.toggle('collapsed');
+    }
+    </script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

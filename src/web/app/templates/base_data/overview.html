@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1 class="mb-4"><i class="fas {{ page_icon }}"></i> {{ page_title }}</h1>
+
+<div class="row mb-4">
+    <div class="col-md-4">
+        <div class="metric-card">
+            <div class="metric-value">{{ tables|length }}</div>
+            <div class="metric-label">数据表总数</div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="metric-card">
+            <div class="metric-value">{{ total }}</div>
+            <div class="metric-label">数据记录总数</div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="metric-card">
+            <div class="metric-value">{{ non_empty }}</div>
+            <div class="metric-label">有数据的表数</div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    {% for t in tables %}
+    <div class="col-md-3 mb-3">
+        <a href="{{ link_base }}/{{ t.key }}" class="text-decoration-none">
+            <div class="metric-card" style="border-left: 4px solid {% if t.count > 0 %}#28a745{% else %}#6c757d{% endif %};">
+                <div class="metric-value" style="font-size: 1.5rem;">{{ t.count }}</div>
+                <div class="metric-label">{{ t.label }}</div>
+                <div class="text-muted" style="font-size: 0.75rem;">{{ t.name }}</div>
+            </div>
+        </a>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

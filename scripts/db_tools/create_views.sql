@@ -1,0 +1,133 @@
+-- ============================================================
+-- aps_or.db 视图脚本 (Views)
+-- 自动生成，请勿手工编辑
+-- 数据库: data/db/aps_or.db
+-- 生成时间: 2026-09-04 11:11:47
+-- ============================================================
+
+PRAGMA foreign_keys = ON;
+
+-- ============================================================
+-- 一、alg_sheet_ 系列视图（排产表展示视图，对应 Excel 原始表）
+-- ============================================================
+
+CREATE VIEW alg_sheet_订单表 AS SELECT o.order_id AS '订单序号', o.product_code AS '产品代码', o.price AS '订单价格', o.quantity AS '订单数量', o.due_period AS '订单交期', o.priority_level AS '订单等级', o.max_delay_allowed AS '允许延期', o.delay_penalty AS '延期罚金', COALESCE(p.assembly_lead_time, 0) AS '生产提前期' FROM core_biz_demand_order o LEFT JOIN core_md_product_ext p ON o.product_code = p.material_code ORDER BY o.order_id
+CREATE VIEW alg_sheet_产品表 AS SELECT ROW_NUMBER() OVER (ORDER BY m.material_code) AS '序号', m.material_code AS '产品代码', m.material_name AS '产品名称', p.standard_cost AS '产品成本', p.standard_price AS '产品价格', p.assembly_lead_time AS '提前期', m.initial_inventory AS '初始库存', m.target_end_inventory AS '期末库存', m.min_inventory AS '最小库存', m.max_inventory AS '最大库存', m.holding_cost_rate AS '库存成本' FROM core_md_material m JOIN core_md_product_ext p ON m.material_code = p.material_code WHERE m.category = 'PRODUCT' ORDER BY m.material_code
+CREATE VIEW alg_sheet_原材料表 AS SELECT ROW_NUMBER() OVER (ORDER BY m.material_code) AS '序号', m.material_code AS '原料代码', m.material_name AS '物料名称', r.purchase_cost AS '采购成本', r.purchase_lead_time AS '采购提前期', m.initial_inventory AS '初始库存', m.target_end_inventory AS '期末库存', m.min_inventory AS '最小库存', m.max_inventory AS '最大库存', m.holding_cost_rate AS '库存成本' FROM core_md_material m JOIN core_md_raw_ext r ON m.material_code = r.material_code WHERE m.category = 'RAW' ORDER BY m.material_code
+CREATE VIEW alg_sheet_BOM AS SELECT b.id AS '序号', b.bom_level AS 'BOM层级', b.parent_material_code AS '父物料', parent_mm.material_name AS '父物料名称', b.child_material_code AS '子物料', child_mm.material_name AS '子物料名称', b.quantity AS '数量' FROM core_biz_bom b LEFT JOIN core_md_material parent_mm ON b.parent_material_code = parent_mm.material_code LEFT JOIN core_md_material child_mm ON b.child_material_code = child_mm.material_code ORDER BY b.id
+CREATE VIEW alg_sheet_设备表 AS SELECT ROW_NUMBER() OVER (ORDER BY resource_code) AS '序号', resource_code AS '设备代码', unit_cost AS '单位成本', quantity AS '设备数', utilization_rate AS '设备利用率', overtime_rate AS '加班率', overtime_cost_multiplier AS '加班成本' FROM core_md_resource WHERE resource_type = 'EQUIPMENT' ORDER BY resource_code
+CREATE VIEW alg_sheet_工装表 AS SELECT ROW_NUMBER() OVER (ORDER BY resource_code) AS '序号', resource_code AS '工装代码', unit_cost AS '工装成本', quantity AS '工装数', utilization_rate AS '工装利用率', overtime_rate AS '加班率', overtime_cost_multiplier AS '加班成本' FROM core_md_resource WHERE resource_type = 'FIXTURE' ORDER BY resource_code
+CREATE VIEW alg_sheet_在制品 AS SELECT ROW_NUMBER() OVER (ORDER BY w.id) AS '序号', CASE WHEN m.category = 'PRODUCT' THEN 1 WHEN m.category = 'SEMI' THEN 2 ELSE 3 END AS '在制品种类代码', CASE WHEN m.category = 'PRODUCT' THEN '产品' WHEN m.category = 'SEMI' THEN '自制件' ELSE '其他' END AS '自制品种类', w.material_code AS '在制件代码', m.material_name AS '在制件名称', h.total_lead_time AS '总制造期', w.completed_stages AS '已完成阶段', w.quantity AS '在制数量' FROM core_biz_wip w LEFT JOIN core_md_material m ON w.material_code = m.material_code LEFT JOIN core_biz_routing_header h ON w.material_code = h.material_code AND h.is_default = 1 WHERE w.quantity > 0 ORDER BY w.id
+CREATE VIEW alg_sheet_自制件 AS SELECT ROW_NUMBER() OVER (ORDER BY m.material_code) AS '序号', m.material_code AS '自制件代码', m.material_name AS '自制件名称', s.is_virtual AS '虚拟件属性', s.manufacturing_lead_time AS '提前期', m.initial_inventory AS '初始库存', m.target_end_inventory AS '期末库存', m.min_inventory AS '最小库存', m.max_inventory AS '最大库存', m.holding_cost_rate AS '库存成本', s.outsource_price AS '外协价格' FROM core_md_material m JOIN core_md_semi_ext s ON m.material_code = s.material_code WHERE m.category = 'SEMI' ORDER BY m.material_code
+CREATE VIEW alg_sheet_外协 AS WITH period_pivot AS (SELECT material_code, MAX(CASE WHEN period_index = 1 THEN max_quantity END) AS '1', MAX(CASE WHEN period_index = 2 THEN max_quantity END) AS '2', MAX(CASE WHEN period_index = 3 THEN max_quantity END) AS '3', MAX(CASE WHEN period_index = 4 THEN max_quantity END) AS '4', MAX(CASE WHEN period_index = 5 THEN max_quantity END) AS '5', MAX(CASE WHEN period_index = 6 THEN max_quantity END) AS '6', MAX(CASE WHEN period_index = 7 THEN max_quantity END) AS '7', MAX(CASE WHEN period_index = 8 THEN max_quantity END) AS '8', MAX(CASE WHEN period_index = 9 THEN max_quantity END) AS '9', MAX(CASE WHEN period_index = 10 THEN max_quantity END) AS '10', MAX(CASE WHEN period_index = 11 THEN max_quantity END) AS '11', MAX(CASE WHEN period_index = 12 THEN max_quantity END) AS '12', MAX(CASE WHEN period_index = 13 THEN max_quantity END) AS '13', MAX(CASE WHEN period_index = 14 THEN max_quantity END) AS '14', MAX(CASE WHEN period_index = 15 THEN max_quantity END) AS '15', MAX(CASE WHEN period_index = 16 THEN max_quantity END) AS '16', MAX(CASE WHEN period_index = 17 THEN max_quantity END) AS '17', MAX(CASE WHEN period_index = 18 THEN max_quantity END) AS '18', MAX(CASE WHEN period_index = 19 THEN max_quantity END) AS '19', MAX(CASE WHEN period_index = 20 THEN max_quantity END) AS '20', MAX(CASE WHEN period_index = 21 THEN max_quantity END) AS '21', MAX(CASE WHEN period_index = 22 THEN max_quantity END) AS '22', MAX(CASE WHEN period_index = 23 THEN max_quantity END) AS '23', MAX(CASE WHEN period_index = 24 THEN max_quantity END) AS '24', MAX(CASE WHEN period_index = 25 THEN max_quantity END) AS '25', MAX(CASE WHEN period_index = 26 THEN max_quantity END) AS '26', MAX(CASE WHEN period_index = 27 THEN max_quantity END) AS '27', MAX(CASE WHEN period_index = 28 THEN max_quantity END) AS '28' FROM core_biz_outsource_period_limit GROUP BY material_code) SELECT ROW_NUMBER() OVER (ORDER BY p.material_code) AS '序号', p.material_code AS '物料代码', COALESCE(s.outsource_price, 0) AS '外协价格', COALESCE(p.'1', 0) AS '1', COALESCE(p.'2', 0) AS '2', COALESCE(p.'3', 0) AS '3', COALESCE(p.'4', 0) AS '4', COALESCE(p.'5', 0) AS '5', COALESCE(p.'6', 0) AS '6', COALESCE(p.'7', 0) AS '7', COALESCE(p.'8', 0) AS '8', COALESCE(p.'9', 0) AS '9', COALESCE(p.'10', 0) AS '10', COALESCE(p.'11', 0) AS '11', COALESCE(p.'12', 0) AS '12', COALESCE(p.'13', 0) AS '13', COALESCE(p.'14', 0) AS '14', COALESCE(p.'15', 0) AS '15', COALESCE(p.'16', 0) AS '16', COALESCE(p.'17', 0) AS '17', COALESCE(p.'18', 0) AS '18', COALESCE(p.'19', 0) AS '19', COALESCE(p.'20', 0) AS '20', COALESCE(p.'21', 0) AS '21', COALESCE(p.'22', 0) AS '22', COALESCE(p.'23', 0) AS '23', COALESCE(p.'24', 0) AS '24', COALESCE(p.'25', 0) AS '25', COALESCE(p.'26', 0) AS '26', COALESCE(p.'27', 0) AS '27', COALESCE(p.'28', 0) AS '28', COALESCE(p.'1', 0) + COALESCE(p.'2', 0) + COALESCE(p.'3', 0) + COALESCE(p.'4', 0) + COALESCE(p.'5', 0) + COALESCE(p.'6', 0) + COALESCE(p.'7', 0) + COALESCE(p.'8', 0) + COALESCE(p.'9', 0) + COALESCE(p.'10', 0) + COALESCE(p.'11', 0) + COALESCE(p.'12', 0) + COALESCE(p.'13', 0) + COALESCE(p.'14', 0) + COALESCE(p.'15', 0) + COALESCE(p.'16', 0) + COALESCE(p.'17', 0) + COALESCE(p.'18', 0) + COALESCE(p.'19', 0) + COALESCE(p.'20', 0) + COALESCE(p.'21', 0) + COALESCE(p.'22', 0) + COALESCE(p.'23', 0) + COALESCE(p.'24', 0) + COALESCE(p.'25', 0) + COALESCE(p.'26', 0) + COALESCE(p.'27', 0) + COALESCE(p.'28', 0) AS '合计' FROM period_pivot p LEFT JOIN core_md_semi_ext s ON p.material_code = s.material_code ORDER BY p.material_code
+CREATE VIEW alg_sheet_采购限制 AS WITH period_pivot AS (SELECT material_code, MAX(CASE WHEN period_index = 1 THEN max_purchase_quantity END) AS '1', MAX(CASE WHEN period_index = 2 THEN max_purchase_quantity END) AS '2', MAX(CASE WHEN period_index = 3 THEN max_purchase_quantity END) AS '3', MAX(CASE WHEN period_index = 4 THEN max_purchase_quantity END) AS '4', MAX(CASE WHEN period_index = 5 THEN max_purchase_quantity END) AS '5', MAX(CASE WHEN period_index = 6 THEN max_purchase_quantity END) AS '6', MAX(CASE WHEN period_index = 7 THEN max_purchase_quantity END) AS '7', MAX(CASE WHEN period_index = 8 THEN max_purchase_quantity END) AS '8', MAX(CASE WHEN period_index = 9 THEN max_purchase_quantity END) AS '9', MAX(CASE WHEN period_index = 10 THEN max_purchase_quantity END) AS '10', MAX(CASE WHEN period_index = 11 THEN max_purchase_quantity END) AS '11', MAX(CASE WHEN period_index = 12 THEN max_purchase_quantity END) AS '12', MAX(CASE WHEN period_index = 13 THEN max_purchase_quantity END) AS '13', MAX(CASE WHEN period_index = 14 THEN max_purchase_quantity END) AS '14', MAX(CASE WHEN period_index = 15 THEN max_purchase_quantity END) AS '15', MAX(CASE WHEN period_index = 16 THEN max_purchase_quantity END) AS '16', MAX(CASE WHEN period_index = 17 THEN max_purchase_quantity END) AS '17', MAX(CASE WHEN period_index = 18 THEN max_purchase_quantity END) AS '18', MAX(CASE WHEN period_index = 19 THEN max_purchase_quantity END) AS '19', MAX(CASE WHEN period_index = 20 THEN max_purchase_quantity END) AS '20', MAX(CASE WHEN period_index = 21 THEN max_purchase_quantity END) AS '21', MAX(CASE WHEN period_index = 22 THEN max_purchase_quantity END) AS '22', MAX(CASE WHEN period_index = 23 THEN max_purchase_quantity END) AS '23', MAX(CASE WHEN period_index = 24 THEN max_purchase_quantity END) AS '24', MAX(CASE WHEN period_index = 25 THEN max_purchase_quantity END) AS '25', MAX(CASE WHEN period_index = 26 THEN max_purchase_quantity END) AS '26', MAX(CASE WHEN period_index = 27 THEN max_purchase_quantity END) AS '27', MAX(CASE WHEN period_index = 28 THEN max_purchase_quantity END) AS '28' FROM core_biz_purchase_period_limit GROUP BY material_code) SELECT ROW_NUMBER() OVER (ORDER BY p.material_code) AS '序号', p.material_code AS '原料代码', m.material_name AS '物料名称', COALESCE(p.'1', 0) AS '1', COALESCE(p.'2', 0) AS '2', COALESCE(p.'3', 0) AS '3', COALESCE(p.'4', 0) AS '4', COALESCE(p.'5', 0) AS '5', COALESCE(p.'6', 0) AS '6', COALESCE(p.'7', 0) AS '7', COALESCE(p.'8', 0) AS '8', COALESCE(p.'9', 0) AS '9', COALESCE(p.'10', 0) AS '10', COALESCE(p.'11', 0) AS '11', COALESCE(p.'12', 0) AS '12', COALESCE(p.'13', 0) AS '13', COALESCE(p.'14', 0) AS '14', COALESCE(p.'15', 0) AS '15', COALESCE(p.'16', 0) AS '16', COALESCE(p.'17', 0) AS '17', COALESCE(p.'18', 0) AS '18', COALESCE(p.'19', 0) AS '19', COALESCE(p.'20', 0) AS '20', COALESCE(p.'21', 0) AS '21', COALESCE(p.'22', 0) AS '22', COALESCE(p.'23', 0) AS '23', COALESCE(p.'24', 0) AS '24', COALESCE(p.'25', 0) AS '25', COALESCE(p.'26', 0) AS '26', COALESCE(p.'27', 0) AS '27', COALESCE(p.'28', 0) AS '28', COALESCE(p.'1', 0) + COALESCE(p.'2', 0) + COALESCE(p.'3', 0) + COALESCE(p.'4', 0) + COALESCE(p.'5', 0) + COALESCE(p.'6', 0) + COALESCE(p.'7', 0) + COALESCE(p.'8', 0) + COALESCE(p.'9', 0) + COALESCE(p.'10', 0) + COALESCE(p.'11', 0) + COALESCE(p.'12', 0) + COALESCE(p.'13', 0) + COALESCE(p.'14', 0) + COALESCE(p.'15', 0) + COALESCE(p.'16', 0) + COALESCE(p.'17', 0) + COALESCE(p.'18', 0) + COALESCE(p.'19', 0) + COALESCE(p.'20', 0) + COALESCE(p.'21', 0) + COALESCE(p.'22', 0) + COALESCE(p.'23', 0) + COALESCE(p.'24', 0) + COALESCE(p.'25', 0) + COALESCE(p.'26', 0) + COALESCE(p.'27', 0) + COALESCE(p.'28', 0) AS '合计' FROM period_pivot p LEFT JOIN core_md_material m ON p.material_code = m.material_code ORDER BY p.material_code
+CREATE VIEW alg_sheet_替代关系 AS WITH period_pivot AS (SELECT rule_id, MAX(CASE WHEN period_index = 1 THEN max_alternative_quantity END) AS '1', MAX(CASE WHEN period_index = 2 THEN max_alternative_quantity END) AS '2', MAX(CASE WHEN period_index = 3 THEN max_alternative_quantity END) AS '3', MAX(CASE WHEN period_index = 4 THEN max_alternative_quantity END) AS '4', MAX(CASE WHEN period_index = 5 THEN max_alternative_quantity END) AS '5', MAX(CASE WHEN period_index = 6 THEN max_alternative_quantity END) AS '6', MAX(CASE WHEN period_index = 7 THEN max_alternative_quantity END) AS '7', MAX(CASE WHEN period_index = 8 THEN max_alternative_quantity END) AS '8', MAX(CASE WHEN period_index = 9 THEN max_alternative_quantity END) AS '9', MAX(CASE WHEN period_index = 10 THEN max_alternative_quantity END) AS '10', MAX(CASE WHEN period_index = 11 THEN max_alternative_quantity END) AS '11', MAX(CASE WHEN period_index = 12 THEN max_alternative_quantity END) AS '12', MAX(CASE WHEN period_index = 13 THEN max_alternative_quantity END) AS '13', MAX(CASE WHEN period_index = 14 THEN max_alternative_quantity END) AS '14', MAX(CASE WHEN period_index = 15 THEN max_alternative_quantity END) AS '15', MAX(CASE WHEN period_index = 16 THEN max_alternative_quantity END) AS '16', MAX(CASE WHEN period_index = 17 THEN max_alternative_quantity END) AS '17', MAX(CASE WHEN period_index = 18 THEN max_alternative_quantity END) AS '18', MAX(CASE WHEN period_index = 19 THEN max_alternative_quantity END) AS '19', MAX(CASE WHEN period_index = 20 THEN max_alternative_quantity END) AS '20', MAX(CASE WHEN period_index = 21 THEN max_alternative_quantity END) AS '21', MAX(CASE WHEN period_index = 22 THEN max_alternative_quantity END) AS '22', MAX(CASE WHEN period_index = 23 THEN max_alternative_quantity END) AS '23', MAX(CASE WHEN period_index = 24 THEN max_alternative_quantity END) AS '24', MAX(CASE WHEN period_index = 25 THEN max_alternative_quantity END) AS '25', MAX(CASE WHEN period_index = 26 THEN max_alternative_quantity END) AS '26', MAX(CASE WHEN period_index = 27 THEN max_alternative_quantity END) AS '27', MAX(CASE WHEN period_index = 28 THEN max_alternative_quantity END) AS '28' FROM core_biz_alt_period_limit GROUP BY rule_id) SELECT ROW_NUMBER() OVER (ORDER BY r.rule_id) AS '序号', r.alt_type AS '替代类型编码', CASE WHEN r.alt_type = 1 THEN '产品' WHEN r.alt_type = 2 THEN '自制件' WHEN r.alt_type = 3 THEN '原材料' ELSE '未知' END AS '替代类型名称', r.from_material_code AS '替代物料一代码', r.from_quantity AS '数量一', r.to_material_code AS '替代物料二代码', r.to_quantity AS '数量二', r.ratio AS '比例', r.is_batch AS '整批', COALESCE(p.'1', 0) AS '1', COALESCE(p.'2', 0) AS '2', COALESCE(p.'3', 0) AS '3', COALESCE(p.'4', 0) AS '4', COALESCE(p.'5', 0) AS '5', COALESCE(p.'6', 0) AS '6', COALESCE(p.'7', 0) AS '7', COALESCE(p.'8', 0) AS '8', COALESCE(p.'9', 0) AS '9', COALESCE(p.'10', 0) AS '10', COALESCE(p.'11', 0) AS '11', COALESCE(p.'12', 0) AS '12', COALESCE(p.'13', 0) AS '13', COALESCE(p.'14', 0) AS '14', COALESCE(p.'15', 0) AS '15', COALESCE(p.'16', 0) AS '16', COALESCE(p.'17', 0) AS '17', COALESCE(p.'18', 0) AS '18', COALESCE(p.'19', 0) AS '19', COALESCE(p.'20', 0) AS '20', COALESCE(p.'21', 0) AS '21', COALESCE(p.'22', 0) AS '22', COALESCE(p.'23', 0) AS '23', COALESCE(p.'24', 0) AS '24', COALESCE(p.'25', 0) AS '25', COALESCE(p.'26', 0) AS '26', COALESCE(p.'27', 0) AS '27', COALESCE(p.'28', 0) AS '28' FROM core_md_alt_rule r LEFT JOIN period_pivot p ON r.rule_id = p.rule_id ORDER BY r.rule_id
+CREATE VIEW alg_sheet_工艺路线 AS SELECT ROW_NUMBER() OVER (ORDER BY h.material_code, h.alt_route_id, s.step_order) AS '序号', h.material_code AS '物料代码', m.material_name AS '物料名称', h.alt_route_id AS '多工艺', s.equipment_code AS '设备代码', s.production_line_code AS '生产线', s.operation_code AS '工序', s.fixture_code AS '工装代码', s.fixture_quantity AS '工装数量', h.total_lead_time AS 'MaxT', COALESCE(MAX(CASE WHEN o.offset_index = 1 THEN o.duration END), 0) AS '1', COALESCE(MAX(CASE WHEN o.offset_index = 2 THEN o.duration END), 0) AS '2', COALESCE(MAX(CASE WHEN o.offset_index = 3 THEN o.duration END), 0) AS '3' FROM core_biz_routing_header h JOIN core_biz_routing_step s ON h.routing_id = s.routing_id LEFT JOIN core_md_material m ON h.material_code = m.material_code LEFT JOIN core_biz_step_time_offset o ON s.step_id = o.step_id WHERE h.is_active = 1 GROUP BY s.step_id ORDER BY h.material_code, h.alt_route_id, s.step_order
+CREATE VIEW alg_sheet_综合表 AS SELECT '计划期长度' AS '主要参数', param_value AS '参数值' FROM core_biz_global_params WHERE param_key = 'PLAN_HORIZON' UNION ALL SELECT 'BOM表记录数', param_value FROM core_biz_global_params WHERE param_key = 'STAT_BOM_RECORDS' UNION ALL SELECT '工艺路线表记录数', param_value FROM core_biz_global_params WHERE param_key = 'STAT_ROUTING_RECORDS' UNION ALL SELECT '订单表记录数', param_value FROM core_biz_global_params WHERE param_key = 'STAT_ORDER_RECORDS' UNION ALL SELECT '工厂数', param_value FROM core_biz_global_params WHERE param_key = 'NUM_FACTORIES' UNION ALL SELECT '设备数', param_value FROM core_biz_global_params WHERE param_key = 'STAT_NUM_EQUIPMENTS' UNION ALL SELECT '工装数', param_value FROM core_biz_global_params WHERE param_key = 'STAT_NUM_FIXTURES' UNION ALL SELECT '产品数', param_value FROM core_biz_global_params WHERE param_key = 'STAT_NUM_PRODUCTS' UNION ALL SELECT '自制产品数', param_value FROM core_biz_global_params WHERE param_key = 'STAT_NUM_SEMIS' UNION ALL SELECT '原料数', param_value FROM core_biz_global_params WHERE param_key = 'STAT_NUM_RAWS' UNION ALL SELECT '订单等级', param_value FROM core_biz_global_params WHERE param_key = 'ORDER_PRIORITY_LEVELS' UNION ALL SELECT '每班时长（分钟）', param_value FROM core_biz_global_params WHERE param_key = 'SHIFT_DURATION_MINUTES' UNION ALL SELECT '每期班次数', param_value FROM core_biz_global_params WHERE param_key = 'SHIFTS_PER_PERIOD' UNION ALL SELECT '最多替代工艺数', param_value FROM core_biz_global_params WHERE param_key = 'MAX_ALTERNATE_ROUTES' UNION ALL SELECT '最大加工周期', param_value FROM core_biz_global_params WHERE param_key = 'MAX_PROCESSING_CYCLE' UNION ALL SELECT '需求率', param_value FROM core_biz_global_params WHERE param_key = 'DEMAND_RATE' UNION ALL SELECT '订单最大允许延期', param_value FROM core_biz_global_params WHERE param_key = 'MAX_DELAY_ALLOWED' UNION ALL SELECT '工装表', param_value FROM core_biz_global_params WHERE param_key = 'LOAD_FLAG_FIXTURE' UNION ALL SELECT '外协表', param_value FROM core_biz_global_params WHERE param_key = 'LOAD_FLAG_OUTSOURCE' UNION ALL SELECT '采购限制表', param_value FROM core_biz_global_params WHERE param_key = 'LOAD_FLAG_PURCHASE_LIMIT' UNION ALL SELECT '替代关系表', param_value FROM core_biz_global_params WHERE param_key = 'LOAD_FLAG_ALTERNATIVE' UNION ALL SELECT '在制品表', param_value FROM core_biz_global_params WHERE param_key = 'LOAD_FLAG_WIP'
+
+-- ============================================================
+-- 二、alg_named_ 系列视图（算法输入视图，供 readCellDB/readTableDB 读取）
+-- ============================================================
+
+CREATE VIEW alg_named_dayshift AS SELECT "参数值" AS dayshift FROM alg_sheet_综合表 WHERE "主要参数" = '每期班次数'
+CREATE VIEW alg_named_dutytime AS SELECT "参数值" AS dutytime FROM alg_sheet_综合表 WHERE "主要参数" = '每班时长（分钟）'
+CREATE VIEW alg_named_maxpro AS SELECT "参数值" AS maxpro FROM alg_sheet_综合表 WHERE "主要参数" = '最大加工周期'
+CREATE VIEW alg_named_nbom AS SELECT "参数值" AS nbom FROM alg_sheet_综合表 WHERE "主要参数" = 'BOM表记录数'
+CREATE VIEW alg_named_ndemrate AS SELECT "参数值" AS ndemrate FROM alg_sheet_综合表 WHERE "主要参数" = '需求率'
+CREATE VIEW alg_named_nequip AS SELECT "参数值" AS nequip FROM alg_sheet_综合表 WHERE "主要参数" = '设备数'
+CREATE VIEW alg_named_nfixtable AS SELECT "参数值" AS nfixtable FROM alg_sheet_综合表 WHERE "主要参数" = '工装表'
+CREATE VIEW alg_named_nfixture AS SELECT "参数值" AS nfixture FROM alg_sheet_综合表 WHERE "主要参数" = '工装数'
+CREATE VIEW alg_named_nordclass AS SELECT "参数值" AS nordclass FROM alg_sheet_综合表 WHERE "主要参数" = '订单等级'
+CREATE VIEW alg_named_nordelay AS SELECT "参数值" AS nordelay FROM alg_sheet_综合表 WHERE "主要参数" = '订单最大允许延期'
+CREATE VIEW alg_named_norder AS SELECT "参数值" AS norder FROM alg_sheet_综合表 WHERE "主要参数" = '订单表记录数'
+CREATE VIEW alg_named_nouttable AS SELECT "参数值" AS nouttable FROM alg_sheet_综合表 WHERE "主要参数" = '外协表'
+CREATE VIEW alg_named_nperiod AS SELECT "参数值" AS nperiod FROM alg_sheet_综合表 WHERE "主要参数" = '计划期长度'
+CREATE VIEW alg_named_nplant AS SELECT "参数值" AS nplant FROM alg_sheet_综合表 WHERE "主要参数" = '工厂数'
+CREATE VIEW alg_named_npmaxt AS SELECT "参数值" AS npmaxt FROM alg_sheet_综合表 WHERE "主要参数" = '最大加工周期'
+CREATE VIEW alg_named_nproduct AS SELECT "参数值" AS nproduct FROM alg_sheet_综合表 WHERE "主要参数" = '产品数'
+CREATE VIEW alg_named_nrawlimtable AS SELECT "参数值" AS nrawlimtable FROM alg_sheet_综合表 WHERE "主要参数" = '采购限制表'
+CREATE VIEW alg_named_nrawmat AS SELECT "参数值" AS nrawmat FROM alg_sheet_综合表 WHERE "主要参数" = '原料数'
+CREATE VIEW alg_named_nrouting AS SELECT "参数值" AS nrouting FROM alg_sheet_综合表 WHERE "主要参数" = '工艺路线表记录数'
+CREATE VIEW alg_named_nselfmade AS SELECT "参数值" AS nselfmade FROM alg_sheet_综合表 WHERE "主要参数" = '自制产品数'
+CREATE VIEW alg_named_nsubtable AS SELECT "参数值" AS nsubtable FROM alg_sheet_综合表 WHERE "主要参数" = '替代关系表'
+CREATE VIEW alg_named_nwiptable AS SELECT "参数值" AS nwiptable FROM alg_sheet_综合表 WHERE "主要参数" = '在制品表'
+CREATE VIEW alg_named_OrdCls AS SELECT "订单等级" AS OrdCls FROM alg_sheet_订单表
+CREATE VIEW alg_named_OrdDly AS SELECT "允许延期" AS OrdDly FROM alg_sheet_订单表
+CREATE VIEW alg_named_OrdFine AS SELECT "延期罚金" AS OrdFine FROM alg_sheet_订单表
+CREATE VIEW alg_named_OrdNo AS SELECT "订单序号" AS OrdNo FROM alg_sheet_订单表
+CREATE VIEW alg_named_OrdPrice AS SELECT "订单价格" AS OrdPrice FROM alg_sheet_订单表
+CREATE VIEW alg_named_OrdProd AS SELECT "产品代码" AS OrdProd FROM alg_sheet_订单表
+CREATE VIEW alg_named_OrdQunt AS SELECT "订单数量" AS OrdQunt FROM alg_sheet_订单表
+CREATE VIEW alg_named_OrdTime AS SELECT "订单交期" AS OrdTime FROM alg_sheet_订单表
+CREATE VIEW alg_named_BomLevel AS SELECT "BOM层级" AS BomLevel FROM alg_sheet_BOM
+CREATE VIEW alg_named_Fcode AS SELECT "父物料" AS Fcode FROM alg_sheet_BOM
+CREATE VIEW alg_named_Quant AS SELECT "数量" AS Quant FROM alg_sheet_BOM
+CREATE VIEW alg_named_Scode AS SELECT "子物料" AS Scode FROM alg_sheet_BOM
+CREATE VIEW alg_named_EquipCost AS SELECT "单位成本" AS EquipCost FROM alg_sheet_设备表
+CREATE VIEW alg_named_EquipId AS SELECT "设备代码" AS EquipId FROM alg_sheet_设备表
+CREATE VIEW alg_named_EquipNumb AS SELECT "设备数" AS EquipNumb FROM alg_sheet_设备表
+CREATE VIEW alg_named_EquipOverR AS SELECT "加班成本" AS EquipOverR FROM alg_sheet_设备表
+CREATE VIEW alg_named_EquipOverT AS SELECT "加班率" AS EquipOverT FROM alg_sheet_设备表
+CREATE VIEW alg_named_EquipRate AS SELECT "设备利用率" AS EquipRate FROM alg_sheet_设备表
+CREATE VIEW alg_named_FixtCost AS SELECT "工装成本" AS FixtCost FROM alg_sheet_工装表
+CREATE VIEW alg_named_FixtId AS SELECT "工装代码" AS FixtId FROM alg_sheet_工装表
+CREATE VIEW alg_named_FixtNo AS SELECT "序号" AS FixtNo FROM alg_sheet_工装表
+CREATE VIEW alg_named_FixtOver AS SELECT "加班率" AS FixtOver FROM alg_sheet_工装表
+CREATE VIEW alg_named_FixtQunt AS SELECT "工装数" AS FixtQunt FROM alg_sheet_工装表
+CREATE VIEW alg_named_FixtRate AS SELECT "工装利用率" AS FixtRate FROM alg_sheet_工装表
+CREATE VIEW alg_named_Fovcost AS SELECT "加班成本" AS Fovcost FROM alg_sheet_工装表
+CREATE VIEW alg_named_Price AS SELECT "产品价格" AS Price FROM alg_sheet_产品表
+CREATE VIEW alg_named_ProdCode AS SELECT "产品代码" AS ProdCode FROM alg_sheet_产品表
+CREATE VIEW alg_named_ProdCost AS SELECT "产品成本" AS ProdCost FROM alg_sheet_产品表
+CREATE VIEW alg_named_ProdInv0 AS SELECT "初始库存" AS ProdInv0 FROM alg_sheet_产品表
+CREATE VIEW alg_named_ProdInvCost AS SELECT "库存成本" AS ProdInvCost FROM alg_sheet_产品表
+CREATE VIEW alg_named_ProdInvL AS SELECT "最小库存" AS ProdInvL FROM alg_sheet_产品表
+CREATE VIEW alg_named_ProdInvT AS SELECT "期末库存" AS ProdInvT FROM alg_sheet_产品表
+CREATE VIEW alg_named_ProdInvU AS SELECT "最大库存" AS ProdInvU FROM alg_sheet_产品表
+CREATE VIEW alg_named_ProdLeadtime AS SELECT "提前期" AS ProdLeadtime FROM alg_sheet_产品表
+CREATE VIEW alg_named_ProEquip AS SELECT "设备代码" AS ProEquip FROM alg_sheet_工艺路线
+CREATE VIEW alg_named_ProFixq AS SELECT "工装数量" AS ProFixq FROM alg_sheet_工艺路线
+CREATE VIEW alg_named_ProFixt AS SELECT "工装代码" AS ProFixt FROM alg_sheet_工艺路线
+CREATE VIEW alg_named_ProHour AS SELECT "1", "2", "3" FROM alg_sheet_工艺路线
+CREATE VIEW alg_named_ProMat AS SELECT "物料代码" AS ProMat FROM alg_sheet_工艺路线
+CREATE VIEW alg_named_ProMaxT AS SELECT "MaxT" AS ProMaxT FROM alg_sheet_工艺路线
+CREATE VIEW alg_named_ProMult AS SELECT "多工艺" AS ProMult FROM alg_sheet_工艺路线
+CREATE VIEW alg_named_ProState AS SELECT "生产线" AS ProState FROM alg_sheet_工艺路线
+CREATE VIEW alg_named_ProOper AS SELECT "工序" AS ProOper FROM alg_sheet_工艺路线
+CREATE VIEW alg_named_RawCode AS SELECT "原料代码" AS RawCode FROM alg_sheet_原材料表
+CREATE VIEW alg_named_RawCost AS SELECT "采购成本" AS RawCost FROM alg_sheet_原材料表
+CREATE VIEW alg_named_RawInv0 AS SELECT "初始库存" AS RawInv0 FROM alg_sheet_原材料表
+CREATE VIEW alg_named_RawInvCost AS SELECT "库存成本" AS RawInvCost FROM alg_sheet_原材料表
+CREATE VIEW alg_named_RawInvL AS SELECT "最小库存" AS RawInvL FROM alg_sheet_原材料表
+CREATE VIEW alg_named_RawInvT AS SELECT "期末库存" AS RawInvT FROM alg_sheet_原材料表
+CREATE VIEW alg_named_RawInvU AS SELECT "最大库存" AS RawInvU FROM alg_sheet_原材料表
+CREATE VIEW alg_named_RawLeadtime AS SELECT "采购提前期" AS RawLeadtime FROM alg_sheet_原材料表
+CREATE VIEW alg_named_RlimId AS SELECT "原料代码" AS RlimId FROM alg_sheet_采购限制
+CREATE VIEW alg_named_RlimNo AS SELECT "序号" AS RlimNo FROM alg_sheet_采购限制
+CREATE VIEW alg_named_RlimQunt AS
+CREATE VIEW alg_named_OutsCode AS SELECT "物料代码" AS OutsCode FROM alg_sheet_外协
+CREATE VIEW alg_named_OutsCost AS SELECT "外协价格" AS OutsCost FROM alg_sheet_外协
+CREATE VIEW alg_named_OutsNo AS SELECT "序号" AS OutsNo FROM alg_sheet_外协
+CREATE VIEW alg_named_OutsQunt AS
+CREATE VIEW alg_named_SubBatch AS SELECT "整批" AS SubBatch FROM alg_sheet_替代关系
+CREATE VIEW alg_named_SubCode1 AS SELECT "替代物料一代码" AS SubCode1 FROM alg_sheet_替代关系
+CREATE VIEW alg_named_SubCode2 AS SELECT "替代物料二代码" AS SubCode2 FROM alg_sheet_替代关系
+CREATE VIEW alg_named_SubQunt1 AS SELECT "数量一" AS SubQunt1 FROM alg_sheet_替代关系
+CREATE VIEW alg_named_SubQunt2 AS SELECT "数量二" AS SubQunt2 FROM alg_sheet_替代关系
+CREATE VIEW alg_named_SubRatio AS SELECT "比例" AS SubRatio FROM alg_sheet_替代关系
+CREATE VIEW alg_named_SubstiNo AS SELECT "序号" AS SubstiNo FROM alg_sheet_替代关系
+CREATE VIEW alg_named_SubType AS SELECT "替代类型编码" AS SubType FROM alg_sheet_替代关系
+CREATE VIEW alg_named_Sublimit AS
+CREATE VIEW alg_named_WipCode AS SELECT "在制件代码" AS WipCode FROM alg_sheet_在制品
+CREATE VIEW alg_named_WipMaxT AS SELECT "总制造期" AS WipMaxT FROM alg_sheet_在制品
+CREATE VIEW alg_named_WipNo AS SELECT "序号" AS WipNo FROM alg_sheet_在制品
+CREATE VIEW alg_named_WipQunt AS SELECT "在制数量" AS WipQunt FROM alg_sheet_在制品
+CREATE VIEW alg_named_WipStage AS SELECT "已完成阶段" AS WipStage FROM alg_sheet_在制品
+CREATE VIEW alg_named_SelfCode AS SELECT "自制件代码" AS SelfCode FROM alg_sheet_自制件
+CREATE VIEW alg_named_SelfDummy AS SELECT "虚拟件属性" AS SelfDummy FROM alg_sheet_自制件
+CREATE VIEW alg_named_SelfLeadtime AS SELECT "提前期" AS SelfLeadtime FROM alg_sheet_自制件
+CREATE VIEW alg_named_SelfInv0 AS SELECT "初始库存" AS SelfInv0 FROM alg_sheet_自制件
+CREATE VIEW alg_named_SelfInvT AS SELECT "期末库存" AS SelfInvT FROM alg_sheet_自制件
+CREATE VIEW alg_named_SelfInvL AS SELECT "最小库存" AS SelfInvL FROM alg_sheet_自制件
+CREATE VIEW alg_named_SelfInvU AS SELECT "最大库存" AS SelfInvU FROM alg_sheet_自制件
+CREATE VIEW alg_named_SelfInvCost AS SELECT "库存成本" AS SelfInvCost FROM alg_sheet_自制件
