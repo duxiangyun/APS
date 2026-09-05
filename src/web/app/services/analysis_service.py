@@ -153,7 +153,197 @@ def get_gantt_data(conn: sqlite3.Connection) -> dict:
             "avg_rate": round(sum(rates) / len(rates), 1) if rates else 0.0,
         })
     equips.sort(key=lambda e: -e["max_rate"])
-    return {"has_result": True, "periods": periods, "equipments": equips}
+    # 工装负荷（period 列为占用工时；峰值/平均负荷率取视图汇总列）
+    fixtures = []
+    for r in conn.execute(
+            f'SELECT resource_code c, {", ".join(f"period_{t}" for t in range(1, nperiod + 1))}, '
+            f'max_load_rate_pct, avg_load_rate_pct FROM res_view_fixt_load'):
+        loads = [round(r[f"period_{t}"] or 0.0, 1) for t in range(1, nperiod + 1)]
+        fixtures.append({"code": r["c"], "loads": loads,
+                         "max_rate": round(r["max_load_rate_pct"] or 0, 1),
+                         "avg_rate": round(r["avg_load_rate_pct"] or 0, 1)})
+    fixt_overload_n = conn.execute(
+        "SELECT COUNT(*) FROM res_fixt_plus WHERE run_id = ? AND load > ?", (run_id, EPS)).fetchone()[0]
+    equip_overload_n = conn.execute(
+        "SELECT COUNT(*) FROM res_overload WHERE run_id = ? AND load > ?", (run_id, EPS)).fetchone()[0]
+    return {"has_result": True, "periods": periods, "equipments": equips,
+            "fixtures": fixtures,
+            "fixt_max_load": round(max((max(f["loads"]) for f in fixtures), default=0.0), 1),
+            "fixt_overload_n": fixt_overload_n, "equip_overload_n": equip_overload_n}
+
+
+# ---------------------------------------------------------------------------
+# 排程可视化：产销存看板（生产 / 销售 / 库存 合一）
+# ---------------------------------------------------------------------------
+def get_psi_board(conn: sqlite3.Connection) -> dict:
+    """产品级产销存：各期产量、销量（交付量）、库存量，用于产销平衡分析"""
+    run_id = _latest_run_id(conn)
+    if run_id is None:
+        return {"has_result": False}
+    nperiod = _run_periods(conn, run_id)
+    pcols = [f"period_{t}" for t in range(1, nperiod + 1)]
+
+    def load(view, code_col="material_code"):
+        out = {}
+        for r in conn.execute(f'SELECT {code_col} c, {", ".join(pcols)} FROM {view}'):
+            acc = out.setdefault(r["c"], [0.0] * nperiod)
+            for i, c in enumerate(pcols):
+                acc[i] += r[c] or 0.0
+        return {k: [round(v, 1) for v in vs] for k, vs in out.items()}
+
+    prod = load("res_view_prod_plan")    # 产量（产品×路线已在视图聚合）
+    sale = load("res_view_prod_sale")    # 销售量/交付量
+    # 库存含 0 期
+    inv_rows = conn.execute(
+        f'SELECT material_code c, {", ".join(f"period_{t}" for t in range(0, nperiod + 1))} '
+        f'FROM res_view_prod_inv').fetchall()
+    inv = {r["c"]: [round(r[f"period_{t}"] or 0.0, 1) for t in range(0, nperiod + 1)] for r in inv_rows}
+
+    names = {r["material_code"]: r["material_name"] for r in conn.execute(
+        "SELECT material_code, material_name FROM core_md_material WHERE category = 'PRODUCT'")}
+
+    codes = sorted(set(prod) | set(sale) | set(inv))
+    products = []
+    for c in codes:
+        p, s, iv = prod.get(c, [0.0] * nperiod), sale.get(c, [0.0] * nperiod), inv.get(c, [0.0] * (nperiod + 1))
+        products.append({
+            "code": c, "name": names.get(c, ""),
+            "prod": p, "sale": s, "inv": iv,
+            "tot_prod": round(sum(p), 1), "tot_sale": round(sum(s), 1),
+            "init_inv": iv[0], "final_inv": iv[-1],
+        })
+    products.sort(key=lambda x: -(x["tot_prod"] + x["tot_sale"]))
+
+    # 各期合计（图表用）
+    period_tot = {
+        "prod": [round(sum(p["prod"][t] for p in products), 1) for t in range(nperiod)],
+        "sale": [round(sum(p["sale"][t] for p in products), 1) for t in range(nperiod)],
+        "inv": [round(sum(p["inv"][t + 1] for p in products), 1) for t in range(nperiod)],
+    }
+    return {
+        "has_result": True, "nperiod": nperiod,
+        "periods": list(range(1, nperiod + 1)),
+        "products": products, "period_tot": period_tot,
+        "tot_prod": round(sum(period_tot["prod"]), 1),
+        "tot_sale": round(sum(period_tot["sale"]), 1),
+        "tot_final_inv": round(period_tot["inv"][-1], 1),
+    }
+
+
+# ---------------------------------------------------------------------------
+# 排程可视化：供应计划看板（自制件生产 / 原材料采购 / 外协）
+# ---------------------------------------------------------------------------
+def get_supply_board(conn: sqlite3.Connection) -> dict:
+    run_id = _latest_run_id(conn)
+    if run_id is None:
+        return {"has_result": False}
+    nperiod = _run_periods(conn, run_id)
+    pcols = [f"period_{t}" for t in range(1, nperiod + 1)]
+
+    def agg(view, extra_cols=""):
+        out = {}
+        sql = f'SELECT material_code c, {", ".join(pcols)} {extra_cols} FROM {view}'
+        for r in conn.execute(sql):
+            acc = out.setdefault(r["c"], {"vals": [0.0] * nperiod, "cost": 0.0, "routes": set()})
+            for i, c in enumerate(pcols):
+                acc["vals"][i] += r[c] or 0.0
+            if extra_cols and "cost_total" in r.keys() and r["cost_total"]:
+                acc["cost"] += r["cost_total"]
+            if extra_cols and "route_id" in r.keys() and r["route_id"] is not None:
+                acc["routes"].add(r["route_id"])
+        return out
+
+    self_ = agg("res_view_self_plan", ", route_id, quantity_total")
+    purch = agg("res_view_purchase_plan", ", quantity_total, cost_total")
+    outs = agg("res_view_outsource_plan", ", quantity_total, cost_total")
+
+    names = {r["material_code"]: r for r in conn.execute(
+        """SELECT m.material_code, m.material_name, m.category,
+                  r.purchase_lead_time AS plt FROM core_md_material m
+           LEFT JOIN core_md_raw_ext r ON r.material_code = m.material_code""")}
+
+    def rows(mat, is_purchase=False):
+        res = []
+        for code, d in mat.items():
+            n = names.get(code)
+            vals = [round(v, 1) for v in d["vals"]]
+            total = round(sum(vals), 1)
+            if total <= EPS and d["cost"] <= EPS:
+                continue
+            res.append({
+                "code": code, "name": (n["material_name"] if n else "") or "",
+                "category": _CATEGORY_LABELS.get(n["category"], "?") if n else "?",
+                "vals": vals, "total": total,
+                "cost": round(d["cost"], 0),
+                "plt": (n["plt"] if n and n["plt"] is not None else None) if is_purchase else None,
+                "routes": sorted(d["routes"]),
+            })
+        res.sort(key=lambda x: -x["total"])
+        return res
+
+    self_rows, purch_rows, out_rows = rows(self_), rows(purch, True), rows(outs, True)
+    period_tot = {
+        "self": [round(sum(r["vals"][t] for r in self_rows), 1) for t in range(nperiod)],
+        "purch": [round(sum(r["vals"][t] for r in purch_rows), 1) for t in range(nperiod)],
+        "out": [round(sum(r["vals"][t] for r in out_rows), 1) for t in range(nperiod)],
+    }
+    return {
+        "has_result": True, "nperiod": nperiod, "periods": list(range(1, nperiod + 1)),
+        "self_rows": self_rows, "purch_rows": purch_rows, "out_rows": out_rows,
+        "period_tot": period_tot,
+        "self_total": round(sum(r["total"] for r in self_rows), 1),
+        "purch_total": round(sum(r["total"] for r in purch_rows), 1),
+        "purch_cost": round(sum(r["cost"] for r in purch_rows), 0),
+        "out_total": round(sum(r["total"] for r in out_rows), 1),
+        "out_cost": round(sum(r["cost"] for r in out_rows), 0),
+    }
+
+
+# ---------------------------------------------------------------------------
+# 排程可视化：资源影子价格热力图（设备/工装/产品/自制件/原材料 + 替代使用）
+# ---------------------------------------------------------------------------
+def get_shadow_heat(conn: sqlite3.Connection) -> dict:
+    run_id = _latest_run_id(conn)
+    if run_id is None:
+        return {"has_result": False}
+    nperiod = _run_periods(conn, run_id)
+    pcols = [f"period_{t}" for t in range(1, nperiod + 1)]
+
+    def heat(view, code_col):
+        out = []
+        for r in conn.execute(f'SELECT {code_col} c, {", ".join(pcols)} FROM {view}'):
+            vals = [round(r[c] or 0.0, 2) for c in pcols]
+            if max(vals) <= EPS:
+                continue
+            out.append({"code": r["c"], "vals": vals,
+                        "avg": round(sum(vals) / len(vals), 2),
+                        "max": round(max(vals), 2)})
+        out.sort(key=lambda x: -x["avg"])
+        return out
+
+    names = {r["material_code"]: r["material_name"] for r in conn.execute(
+        "SELECT material_code, material_name FROM core_md_material")}
+    tabs = {
+        "equip": {"label": "设备", "rows": heat("res_view_equip_shadow", "resource_code"), "unit": "元/工时"},
+        "fixt": {"label": "工装", "rows": heat("res_view_fixt_shadow", "resource_code"), "unit": "元/工时"},
+        "prod": {"label": "产品", "rows": heat("res_view_shadow_prod", "material_code"), "unit": "元/件"},
+        "self": {"label": "自制件", "rows": heat("res_view_shadow_self", "material_code"), "unit": "元/件"},
+        "raw": {"label": "原材料", "rows": heat("res_view_shadow_raw", "material_code"), "unit": "元/件"},
+    }
+    for key in ("prod", "self", "raw"):
+        for row in tabs[key]["rows"]:
+            row["name"] = names.get(row["code"], "")
+
+    # 替代关系使用
+    subs = []
+    for r in conn.execute(
+            """SELECT alt_type_name, from_material_code, to_material_code, quantity_total
+               FROM res_view_substitute WHERE quantity_total > 0
+               ORDER BY quantity_total DESC"""):
+        subs.append({"type": r["alt_type_name"], "f": r["from_material_code"],
+                     "t": r["to_material_code"], "qty": round(r["quantity_total"], 1)})
+    return {"has_result": True, "nperiod": nperiod, "periods": list(range(1, nperiod + 1)),
+            "tabs": tabs, "substitutes": subs}
 
 
 # ---------------------------------------------------------------------------
@@ -353,6 +543,210 @@ def get_outsource_analysis(conn: sqlite3.Connection) -> dict:
         "out_qty": out_qty, "self_qty": self_qty,
         "out_qty_pct": round(out_qty / (out_qty + self_qty) * 100, 1) if (out_qty + self_qty) > EPS else 0,
         "items": outs, "nperiod": nperiod,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 排程可视化：物料需求（MRP 口径，按模型自身平衡恒等式推算毛需求）
+# ---------------------------------------------------------------------------
+def _material_supply_map(conn: sqlite3.Connection, run_id: int, nperiod: int) -> dict:
+    """汇总各物料的供给/库存/松弛（单位：件）
+
+    毛需求（实际消耗）= 期初库存 + 计划供给 − 期末库存（模型物料平衡恒等式）。
+    该口径自动涵盖虚拟件/外协/物料替代/在制品/损耗，与模型完全一致。
+    """
+    sup = {}
+
+    def get(code):
+        return sup.setdefault(code, {
+            "prod": 0.0, "self": 0.0, "out": 0.0, "pur": 0.0,
+            "init": 0.0, "final": 0.0, "slack": 0.0,
+        })
+
+    for tbl, col in (("res_prod_made", "prod"), ("res_self_made", "self"),
+                     ("res_outsource", "out"), ("res_purchase", "pur")):
+        rows = conn.execute(
+            f"SELECT material_code m, SUM(quantity) q FROM {tbl} WHERE run_id = ? GROUP BY m",
+            (run_id,)).fetchall()
+        for r in rows:
+            get(r["m"])[col] += r["q"] or 0.0
+
+    for tbl in ("res_prod_inv", "res_self_inv", "res_raw_inv"):
+        rows = conn.execute(
+            f"SELECT material_code m, period, quantity q FROM {tbl} WHERE run_id = ? AND period IN (0, ?)",
+            (run_id, nperiod)).fetchall()
+        for r in rows:
+            s = get(r["m"])
+            if r["period"] == 0:
+                s["init"] += r["q"] or 0.0
+            else:
+                s["final"] += r["q"] or 0.0
+
+    for r in conn.execute(
+            "SELECT inf_type, resource_code m, SUM(quantity) q FROM res_infeasible "
+            "WHERE run_id = ? GROUP BY inf_type, m", (run_id,)).fetchall():
+        get(r["m"])["slack"] += r["q"] or 0.0
+    return sup
+
+
+_CATEGORY_LABELS = {"PRODUCT": "产品", "SEMI": "自制件", "RAW": "原材料"}
+
+def get_material_requirements(conn: sqlite3.Connection) -> dict:
+    run_id = _latest_run_id(conn)
+    if run_id is None:
+        return {"has_result": False}
+    nperiod = _run_periods(conn, run_id)
+    sup = _material_supply_map(conn, run_id, nperiod)
+
+    masters = {r["material_code"]: r for r in conn.execute(
+        """SELECT m.material_code, m.material_name, m.category,
+                  r.purchase_lead_time AS pur_lt
+           FROM core_md_material m
+           LEFT JOIN core_md_raw_ext r ON r.material_code = m.material_code""").fetchall()}
+    rows = []
+    for code, s in sup.items():
+        supply = s["prod"] + s["self"] + s["out"] + s["pur"]
+        gross = s["init"] + supply - s["final"]
+        if gross <= EPS and supply <= EPS and s["init"] <= EPS and s["slack"] <= EPS:
+            continue
+        mst = masters.get(code)
+        cat = mst["category"] if mst else None
+        rows.append({
+            "category": _CATEGORY_LABELS.get(cat, "其他"),
+            "category_key": cat or "?",
+            "code": code,
+            "name": (mst["material_name"] if mst else "") or "",
+            "init": round(s["init"], 1),
+            "prod": round(s["prod"], 1), "self": round(s["self"], 1),
+            "out": round(s["out"], 1), "pur": round(s["pur"], 1),
+            "gross": round(max(gross, 0.0), 1),
+            "final": round(s["final"], 1),
+            "slack": round(s["slack"], 1),
+            "pur_lt": (mst["pur_lt"] if mst and mst["pur_lt"] is not None else None),
+        })
+    cat_order = {"PRODUCT": 0, "SEMI": 1, "RAW": 2}
+    rows.sort(key=lambda x: (cat_order.get(x["category_key"], 9), -x["gross"]))
+
+    summary = {
+        "total_gross": round(sum(r["gross"] for r in rows), 1),
+        "n_short": sum(1 for r in rows if r["slack"] > EPS),
+        "n_semi": sum(1 for r in rows if r["category_key"] == "SEMI"),
+        "n_raw": sum(1 for r in rows if r["category_key"] == "RAW"),
+    }
+    return {"has_result": True, "rows": rows, "summary": summary, "run_id": run_id}
+
+
+# ---------------------------------------------------------------------------
+# 排程可视化：订单齐套视图
+# ---------------------------------------------------------------------------
+def _bom_edges(conn: sqlite3.Connection) -> dict:
+    edges = {}
+    for r in conn.execute(
+            "SELECT parent_material_code p, child_material_code c, quantity q "
+            "FROM core_biz_bom"):
+        edges.setdefault(r["p"], []).append((r["c"], r["q"] or 1.0))
+    return edges
+
+
+def _explode_components(edges: dict, product: str, order_qty: float) -> list[dict]:
+    """BOM 多级递归展开（标准用量），返回 [{code, level, qty}]，共享子件累计"""
+    req = {}
+    def rec(parent, parent_qty, level, path):
+        if level > 12:
+            return
+        for child, q in edges.get(parent, []):
+            if child in path:          # 环保护
+                continue
+            need = parent_qty * q
+            req[child] = req.get(child, 0.0) + need
+            rec(child, need, level + 1, path + [child])
+    rec(product, order_qty, 1, [product])
+    return [{"code": c, "qty": round(q, 2)} for c, q in sorted(req.items(), key=lambda x: -x[1])]
+
+
+def get_order_kitting(conn: sqlite3.Connection) -> dict:
+    run_id = _latest_run_id(conn)
+    if run_id is None:
+        return {"has_result": False}
+    nperiod = _run_periods(conn, run_id)
+    sup = _material_supply_map(conn, run_id, nperiod)
+    edges = _bom_edges(conn)
+
+    # 全局松弛：SALE=交付缺口(按订单号)，RAW/SELF=物料缺口，EQUIP/FIXT=产能缺口
+    sale_slack = set()
+    mat_short = cap_short = False
+    for r in conn.execute(
+            "SELECT inf_type, resource_code m FROM res_infeasible WHERE run_id = ?", (run_id,)):
+        if r["inf_type"] == "SALE":
+            sale_slack.add(str(r["m"]))
+        elif r["inf_type"] in ("RAW", "SELF"):
+            mat_short = True
+        else:
+            cap_short = True
+
+    # 订单聚合
+    order_rows = conn.execute(
+        """SELECT order_id, material_code, priority_level, order_quantity, due_period,
+                  MAX(delivery_period) last_deliver, SUM(delivery_quantity) delivered,
+                  SUM(delay_quantity) delayed_qty, SUM(delay_penalty) penalty
+           FROM res_view_order_sale GROUP BY order_id
+           ORDER BY order_id""").fetchall()
+    masters = {r["material_code"]: r for r in conn.execute(
+        "SELECT material_code, material_name, category FROM core_md_material")}
+    orders = []
+    n_ontime = n_partial = n_late = n_undelivered = 0
+    for r in order_rows:
+        delivered = r["delivered"] or 0.0
+        qty = r["order_quantity"] or 0.0
+        is_late = r["last_deliver"] is not None and r["last_deliver"] > r["due_period"]
+        is_partial = (r["delayed_qty"] or 0.0) > EPS
+        if delivered < EPS:
+            status, color, n_undelivered = "未齐套", "danger", n_undelivered + 1
+        elif is_late and is_partial:
+            status, color, n_partial = "部分齐套(延期)", "warning", n_partial + 1
+        elif is_late:
+            status, color, n_late = "延期齐套", "danger", n_late + 1
+        elif is_partial:
+            status, color, n_partial = "部分齐套", "warning", n_partial + 1
+        else:
+            status, color, n_ontime = "齐套", "success", n_ontime + 1
+        # 归因
+        reasons = []
+        if str(r["order_id"]) in sale_slack:
+            reasons.append("存在交付缺口（订单无法足额交付）")
+        if mat_short:
+            reasons.append("物料供给缺口（原材料/自制件松弛）")
+        if cap_short:
+            reasons.append("设备/工装能力缺口")
+        if is_late and not reasons:
+            # 无硬缺口仍延期 → 产能时序紧张（瓶颈）
+            reasons.append("产能时序紧张（建议关注瓶颈设备排程）")
+        # BOM 标准展开
+        comps = _explode_components(edges, r["material_code"], qty)
+        for c in comps:
+            mst = masters.get(c["code"])
+            s = sup.get(c["code"])
+            c["category"] = _CATEGORY_LABELS.get(mst["category"], "?") if mst else "?"
+            c["name"] = (mst["material_name"] if mst else "") or ""
+            supply = s if s else None
+            c["plan_supply"] = round(s["self"] + s["out"] + s["pur"], 1) if supply else 0.0
+        orders.append({
+            "order_id": r["order_id"], "product": r["material_code"],
+            "product_name": (masters.get(r["material_code"])["material_name"]
+                             if masters.get(r["material_code"]) else "") or "",
+            "priority": r["priority_level"], "qty": round(qty, 1),
+            "due": r["due_period"], "last_deliver": r["last_deliver"],
+            "delayed_qty": round(r["delayed_qty"] or 0, 1),
+            "penalty": round(r["penalty"] or 0, 0),
+            "status": status, "color": color,
+            "reasons": reasons, "components": comps,
+        })
+    total = len(orders)
+    return {
+        "has_result": True, "orders": orders,
+        "kitting_rate": round(n_ontime / total * 100, 1) if total else 0.0,
+        "n_ontime": n_ontime, "n_partial": n_partial,
+        "n_late": n_late, "n_undelivered": n_undelivered, "total": total,
     }
 
 

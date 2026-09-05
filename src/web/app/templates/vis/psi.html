@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block content %}
+<h4><i class="fas fa-balance-scale text-primary"></i> 产销存看板 <small class="text-muted">产品生产 / 销售交付 / 库存 的平衡分析</small></h4>
+{% if not data.has_result %}
+<div class="alert alert-info mt-3">暂无排产结果，请先运行排产。</div>
+{% else %}
+<div class="row">
+    <div class="col-md-3"><div class="metric-card text-center border-start border-primary border-4">
+        <div class="metric-label">计划总产量</div>
+        <div class="metric-value">{{ '{:,.0f}'.format(data.tot_prod) }}</div>
+    </div></div>
+    <div class="col-md-3"><div class="metric-card text-center border-start border-success border-4">
+        <div class="metric-label">总销售量（交付）</div>
+        <div class="metric-value" style="color:#198754">{{ '{:,.0f}'.format(data.tot_sale) }}</div>
+    </div></div>
+    <div class="col-md-3"><div class="metric-card text-center border-start border-info border-4">
+        <div class="metric-label">期末库存</div>
+        <div class="metric-value" style="color:#0dcaf0">{{ '{:,.0f}'.format(data.tot_final_inv) }}</div>
+    </div></div>
+    <div class="col-md-3"><div class="metric-card text-center border-start border-secondary border-4">
+        <div class="metric-label">产销率（销/产）</div>
+        <div class="metric-value">{{ (data.tot_sale / data.tot_prod * 100) | round(1) if data.tot_prod else 0 }}%</div>
+    </div></div>
+</div>
+
+<div class="card"><div class="card-header"><strong>各期产销存趋势</strong>
+    <span class="text-muted small ms-2">柱=产量/销量，线=期末库存</span></div>
+    <div class="card-body"><canvas id="psiChart" height="90"></canvas></div>
+</div>
+
+<div class="card mt-3"><div class="card-header d-flex align-items-center">
+    <strong>产品 × 周期分布</strong>
+    <div class="btn-group btn-group-sm ms-auto" role="group">
+        <button class="btn btn-outline-primary active" onclick="switchTab(this,'prod')">生产</button>
+        <button class="btn btn-outline-success" onclick="switchTab(this,'sale')">销售</button>
+        <button class="btn btn-outline-info" onclick="switchTab(this,'inv')">库存</button>
+    </div>
+</div>
+    <div class="card-body table-responsive">
+        <table class="table table-bordered table-sm mb-0" style="font-size:0.8rem" id="psiTable">
+            <thead><tr class="text-center">
+                <th class="text-start" style="min-width:150px">产品 \\ 周期</th>
+                <th id="th0" style="width:46px">0(期初)</th>
+                {% for t in data.periods %}<th style="width:52px">{{ t }}</th>{% endfor %}
+                <th style="width:70px">合计</th>
+            </tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card mt-3"><div class="card-header"><strong>产品产销平衡汇总</strong></div>
+    <div class="card-body table-responsive p-0">
+        <table class="table table-sm table-hover mb-0" style="font-size:0.88rem">
+            <thead><tr class="table-light">
+                <th>产品代码</th><th>产品名称</th>
+                <th class="text-end">期初库存</th><th class="text-end">总产量</th>
+                <th class="text-end">总销售</th><th class="text-end">期末库存</th><th class="text-end">产销差(产-销)</th>
+            </tr></thead>
+            <tbody>
+            {% for p in data.products %}
+            <tr>
+                <td class="fw-bold">{{ p.code }}</td>
+                <td class="small text-muted">{{ p.name }}</td>
+                <td class="text-end">{{ p.init_inv | round(0) | int if p.init_inv else '' }}</td>
+                <td class="text-end text-primary">{{ p.tot_prod | round(0) | int if p.tot_prod else '' }}</td>
+                <td class="text-end text-success">{{ p.tot_sale | round(0) | int if p.tot_sale else '' }}</td>
+                <td class="text-end text-info">{{ p.final_inv | round(0) | int if p.final_inv else '' }}</td>
+                <td class="text-end {{ 'text-warning fw-bold' if (p.tot_prod - p.tot_sale) > 0.01 else '' }}">
+                    {{ (p.tot_prod - p.tot_sale) | round(1) if (p.tot_prod - p.tot_sale) > 0.01 else '0' }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+<div class="alert alert-light border mt-3 small mb-0">
+    <i class="fas fa-info-circle"></i>
+    生产=排产完工量（res_view_prod_plan），销售=订单按期/延期交付量（res_view_prod_sale），库存取产品库存视图；
+    产销差为正表示当期产量大于交付、形成库存积压。生产/销售的原始明细见「输出结果 → 产品生产计划 / 产品销售计划」。
+</div>
+{% endif %}
+{% endblock %}
+{% block extra_js %}
+<script src="/static/chart.umd.min.js"></script>
+<script>
+const d = {{ chart_json | safe }};
+
+// ---- 趋势图：产量/销量柱 + 库存线 ----
+new Chart(document.getElementById('psiChart'), {
+    data: {
+        labels: d.periods.map(t => '第' + t + '期'),
+        datasets: [
+            {type: 'bar', label: '产量', data: d.period_tot.prod, backgroundColor: '#0d6efd99', order: 2},
+            {type: 'bar', label: '销售量', data: d.period_tot.sale, backgroundColor: '#19875499', order: 2},
+            {type: 'line', label: '期末库存', data: d.period_tot.inv, borderColor: '#0dcaf0',
+             backgroundColor: '#0dcaf0', tension: .2, order: 1, yAxisID: 'y'},
+        ]
+    },
+    options: {responsive: true, interaction: {mode: 'index', intersect: false},
+        scales: {y: {beginAtZero: true, title: {display: true, text: '数量（件）'}}}}
+});
+
+// ---- 产品×周期热力矩阵（生产/销售/库存切换）----
+const PALETTE = {
+    prod: {h: 216, label: '产量'},
+    sale: {h: 140, label: '销量'},
+    inv:  {h: 190, label: '库存'},
+};
+function color(v, max, h) {
+    if (v <= 0.01) return {bg: '#f1f3f5', fg: 'transparent'};
+    const ratio = Math.min(v / max, 1);
+    const light = 92 - ratio * 40;
+    return {bg: `hsl(${h},70%,${light}%)`, fg: ratio > 0.55 ? '#fff' : '#212529'};
+}
+function renderMatrix(metric) {
+    const isInv = metric === 'inv';
+    document.getElementById('th0').style.display = isInv ? '' : 'none';
+    const values = [];
+    d.products.forEach(p => {
+        const arr = isInv ? p.inv : p[metric];
+        arr.forEach(v => values.push(v));
+    });
+    const max = Math.max(...values, 1);
+    const h = PALETTE[metric].h;
+    const tbody = document.querySelector('#psiTable tbody');
+    tbody.innerHTML = d.products.map(p => {
+        const arr = isInv ? p.inv : p[metric];
+        let cells = '';
+        arr.forEach((v, i) => {
+            if (!isInv && i === 0) return;
+            const c = color(v, max, h);
+            cells += `<td class="text-center" title="${p.code} 第${i}期${PALETTE[metric].label} ${v}"
+                style="background:${c.bg};color:${c.fg}">${v > 0.01 ? Math.round(v) : 0}</td>`;
+        });
+        const total = isInv ? p.final_inv : p[metric === 'prod' ? 'tot_prod' : 'tot_sale'];
+        return `<tr><td class="text-start fw-bold">${p.code}<div class="small text-muted fw-normal">${p.name}</div></td>
+            ${cells}<td class="text-center fw-bold">${Math.round(total)}</td></tr>`;
+    }).join('');
+}
+function switchTab(btn, metric) {
+    btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderMatrix(metric);
+}
+renderMatrix('prod');
+</script>
+{% endblock %}

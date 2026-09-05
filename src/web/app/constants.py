@@ -987,8 +987,12 @@ SIDEBAR_MENU = [
         "children": [
             {"key": "vis_gantt", "label": "生产甘特图", "url": "/vis/gantt", "icon": "fa-stream"},
             {"key": "vis_orders", "label": "订单交付看板", "url": "/vis/orders", "icon": "fa-clipboard-check"},
+            {"key": "vis_psi", "label": "产销存看板", "url": "/vis/psi", "icon": "fa-balance-scale"},
+            {"key": "vis_supply", "label": "供应计划看板", "url": "/vis/supply", "icon": "fa-truck-loading"},
+            {"key": "vis_materials", "label": "物料需求清单", "url": "/vis/materials", "icon": "fa-list-ul"},
+            {"key": "vis_kitting", "label": "订单齐套视图", "url": "/vis/kitting", "icon": "fa-clipboard-list"},
+            {"key": "vis_shadow", "label": "影子价格热力", "url": "/vis/shadow", "icon": "fa-fire"},
             {"key": "equip_load_link", "label": "设备负荷明细", "url": "/res/equip_load", "icon": "fa-microchip"},
-            {"key": "shadow_link", "label": "影子价格", "url": "/res/shadow_prod", "icon": "fa-dollar-sign"},
         ],
     },
     {

@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block content %}
+<h4><i class="fas fa-truck-loading text-primary"></i> 供应计划看板 <small class="text-muted">自制件生产 / 原材料采购 / 外协 的供应安排</small></h4>
+{% if not data.has_result %}
+<div class="alert alert-info mt-3">暂无排产结果，请先运行排产。</div>
+{% else %}
+<div class="row">
+    <div class="col-md-3"><div class="metric-card text-center border-start border-success border-4">
+        <div class="metric-label">自制件总产量</div>
+        <div class="metric-value" style="color:#198754">{{ '{:,.0f}'.format(data.self_total) }}</div>
+        <div class="small text-muted">{{ data.self_rows | length }} 种自制件</div>
+    </div></div>
+    <div class="col-md-3"><div class="metric-card text-center border-start border-primary border-4">
+        <div class="metric-label">原材料采购总量</div>
+        <div class="metric-value">{{ '{:,.0f}'.format(data.purch_total) }}</div>
+        <div class="small text-muted">{{ data.purch_rows | length }} 种 · 采购额 ¥{{ '{:,.0f}'.format(data.purch_cost) }}</div>
+    </div></div>
+    <div class="col-md-3"><div class="metric-card text-center border-start border-warning border-4">
+        <div class="metric-label">外协数量</div>
+        <div class="metric-value" style="color:#fd7e14">{{ '{:,.0f}'.format(data.out_total) }}</div>
+        <div class="small text-muted">外协费用 ¥{{ '{:,.0f}'.format(data.out_cost) }}</div>
+    </div></div>
+    <div class="col-md-3"><div class="metric-card text-center border-start border-info border-4">
+        <div class="metric-label">计划期数</div>
+        <div class="metric-value" style="font-size:1.6rem">{{ data.nperiod }}</div>
+    </div></div>
+</div>
+
+<div class="card"><div class="card-header"><strong>各期供应趋势</strong>
+    <span class="text-muted small ms-2">柱=各期供应量（件）</span></div>
+    <div class="card-body"><canvas id="supplyChart" height="85"></canvas></div>
+</div>
+
+<div class="card mt-3"><div class="card-header d-flex align-items-center">
+    <strong id="matrixTitle">自制件生产分布</strong>
+    <div class="btn-group btn-group-sm ms-auto" role="group">
+        <button class="btn btn-outline-success active" onclick="switchTab(this,'self')">自制件生产</button>
+        <button class="btn btn-outline-primary" onclick="switchTab(this,'purch')">原材料采购</button>
+        <button class="btn btn-outline-warning" onclick="switchTab(this,'out')">外协</button>
+    </div>
+</div>
+    <div class="card-body table-responsive">
+        <table class="table table-bordered table-sm mb-0" style="font-size:0.78rem" id="supplyTable">
+            <thead><tr class="text-center">
+                <th class="text-start" style="min-width:170px" id="colName">物料 \\ 周期</th>
+                <th id="colExtra" style="min-width:56px">提前期</th>
+                {% for t in data.periods %}<th style="width:50px">{{ t }}</th>{% endfor %}
+                <th style="width:64px">合计</th>
+            </tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</div>
+<div class="alert alert-light border mt-3 small mb-0">
+    <i class="fas fa-info-circle"></i>
+    自制件 = 车间排产完工量（res_view_self_plan），原材料采购 = 各期采购计划（res_view_purchase_plan，
+    颜色外附加采购提前期供倒排下单），外协 = 外包工序到货量。格子颜色深浅表示当期供应数量；
+    实际消耗/净需求见「物料需求清单」。
+</div>
+{% endif %}
+{% endblock %}
+{% block extra_js %}
+<script src="/static/chart.umd.min.js"></script>
+<script>
+const d = {{ chart_json | safe }};
+new Chart(document.getElementById('supplyChart'), {
+    type: 'bar',
+    data: {labels: d.periods.map(t => '第'+t+'期'), datasets: [
+        {label: '自制件生产', data: d.period_tot.self, backgroundColor: '#19875499'},
+        {label: '原材料采购', data: d.period_tot.purch, backgroundColor: '#0d6efd99'},
+        {label: '外协', data: d.period_tot.out, backgroundColor: '#fd7e1499'},
+    ]},
+    options: {responsive: true, interaction: {mode:'index', intersect:false},
+        scales: {x: {stacked: true}, y: {stacked: true, beginAtZero: true}}}
+});
+
+const CONF = {
+    self:  {rows: d.self_rows,  hue: 140, extra: '',  title: '自制件生产分布', extraLabel: ''},
+    purch: {rows: d.purch_rows, hue: 216, extra: 'plt', title: '原材料采购分布', extraLabel: '提前期'},
+    out:   {rows: d.out_rows,   hue: 35,  extra: 'plt', title: '外协分布', extraLabel: ''},
+};
+function cellColor(v, max, hue) {
+    if (v <= 0.01) return {bg:'#f1f3f5', fg:'transparent'};
+    const ratio = Math.min(v/max, 1), light = 92 - ratio*40;
+    return {bg: `hsl(${hue},70%,${light}%)`, fg: ratio > 0.55 ? '#fff':'#212529'};
+}
+function switchTab(btn, key) {
+    btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const c = CONF[key];
+    document.getElementById('matrixTitle').textContent = c.title;
+    document.getElementById('colExtra').textContent = c.extraLabel || '—';
+    document.getElementById('colExtra').style.display = c.extraLabel ? '' : 'none';
+    const max = Math.max(1, ...c.rows.flatMap(r => r.vals));
+    document.querySelector('#supplyTable tbody').innerHTML = c.rows.map(r => {
+        let cells = r.vals.map((v,i) => {
+            const col = cellColor(v, max, c.hue);
+            return `<td class="text-center" style="background:${col.bg};color:${col.fg}"
+                title="${r.code} 第${i+1}期 ${v}">${v>0.01 ? Math.round(v):0}</td>`;
+        }).join('');
+        const extra = c.extra && r[c.extra] != null ? `<td class="text-center text-muted">${r[c.extra]}</td>`
+                    : (c.extraLabel ? `<td class="text-center text-muted">—</td>` : '<td class="text-center"></td>');
+        return `<tr><td class="text-start fw-bold">${r.code}<div class="small text-muted fw-normal">${r.name}</div></td>
+            ${extra}${cells}<td class="text-center fw-bold">${Math.round(r.total)}</td></tr>`;
+    }).join('');
+}
+switchTab(document.querySelector('button.btn-outline-success'), 'self');
+</script>
+{% endblock %}

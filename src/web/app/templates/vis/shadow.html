@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block content %}
+<h4><i class="fas fa-fire text-danger"></i> 影子价格（边际价值）热力图 <small class="text-muted">资源/物料在各期的稀缺程度</small></h4>
+{% if not data.has_result %}
+<div class="alert alert-info mt-3">暂无排产结果（影子价格仅在连续松弛 LP 解 intager=0 下有意义）。</div>
+{% else %}
+<div class="alert alert-light border small">
+    <i class="fas fa-info-circle"></i>
+    <b>影子价格</b> = 约束右端再增加一单位能力/供给时，目标利润能增加多少（元/工时 或 元/件）。
+    颜色越<b class="text-danger">红</b>表示该资源/物料在该期越稀缺、边际价值越高；灰色为无价值（有冗余）。
+    它是扩产、加班、外协、插单决策的依据。数据来自各 <code>res_dual_*</code> 对偶解表。
+</div>
+
+<div class="card"><div class="card-header d-flex align-items-center">
+    <strong id="shTitle">设备影子价格</strong>
+    <div class="btn-group btn-group-sm ms-auto" role="group">
+        <button class="btn btn-outline-danger active" onclick="switchSh(this,'equip')">设备</button>
+        <button class="btn btn-outline-secondary" onclick="switchSh(this,'fixt')">工装</button>
+        <button class="btn btn-outline-primary" onclick="switchSh(this,'prod')">产品</button>
+        <button class="btn btn-outline-success" onclick="switchSh(this,'self')">自制件</button>
+        <button class="btn btn-outline-warning" onclick="switchSh(this,'raw')">原材料</button>
+    </div>
+</div>
+    <div class="card-body table-responsive">
+        <table class="table table-bordered table-sm mb-0" style="font-size:0.78rem" id="shTable">
+            <thead><tr class="text-center">
+                <th class="text-start" style="min-width:160px" id="shColName">资源 \\ 周期</th>
+                {% for t in data.periods %}<th style="width:52px">{{ t }}</th>{% endfor %}
+                <th style="width:64px">均值</th><th style="width:64px">峰值</th>
+            </tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card mt-3"><div class="card-header"><strong><i class="fas fa-exchange-alt text-info"></i> 物料替代实际使用</strong>
+    <span class="text-muted small ms-2">模型为优化交付而启用的替代关系</span></div>
+    <div class="card-body table-responsive p-0">
+        <table class="table table-sm table-hover mb-0" style="font-size:0.88rem">
+            <thead><tr class="table-light">
+                <th>替代类型</th><th>被替代物料</th><th class="text-center"><i class="fas fa-arrow-right"></i></th>
+                <th>替代物料</th><th class="text-end">替代使用量</th>
+            </tr></thead>
+            <tbody>
+            {% for s in data.substitutes %}
+            <tr>
+                <td><span class="badge bg-info">{{ s.type }}</span></td>
+                <td class="text-muted">{{ s.f }}</td>
+                <td class="text-center"><i class="fas fa-arrow-right text-success"></i></td>
+                <td class="fw-bold">{{ s.t }}</td>
+                <td class="text-end text-info">{{ s.qty | round(1) }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="text-center text-muted py-3">本次排产未发生物料替代</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+<div class="alert alert-light border mt-3 small mb-0">
+    <i class="fas fa-info-circle"></i> 设备/工装影子价格单位为元/工时（追加一单位设备产能的边际收益），
+    产品/自制件/原材料为元/件（追加一单位物料供给的边际收益）。仅展示影子价格大于 0 的资源/物料；
+    逐期数值明细见「输出结果 → 各影子价格」视图。
+</div>
+{% endif %}
+{% endblock %}
+{% block extra_js %}
+<script>
+const d = {{ chart_json | safe }};
+const LABELS = {equip:'资源', fixt:'资源', prod:'产品', self:'自制件', raw:'原材料'};
+function shColor(v, max) {
+    if (v <= 0.001) return {bg:'#eef0f2', fg:'transparent'};
+    const ratio = Math.min(v/max, 1);
+    // 低价值黄 → 高价值红
+    const hue = 55 - ratio*55, light = 88 - ratio*38;
+    return {bg: `hsl(${hue},80%,${light}%)`, fg: ratio>0.5?'#fff':'#212529'};
+}
+function switchSh(btn, key) {
+    btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const tab = d.tabs[key];
+    document.getElementById('shTitle').textContent = tab.label + '影子价格（' + tab.unit + '）';
+    document.getElementById('shColName').textContent = LABELS[key] + ' \\\\ 周期';
+    const max = Math.max(0.001, ...tab.rows.flatMap(r => r.vals));
+    document.querySelector('#shTable tbody').innerHTML = tab.rows.map(r => {
+        const cells = r.vals.map((v,i) => {
+            const c = shColor(v, max);
+            return `<td class="text-center" style="background:${c.bg};color:${c.fg}"
+                title="${r.code} 第${i+1}期 ${v} ${tab.unit}">${v>0.001? (v>=100? Math.round(v): v):0}</td>`;
+        }).join('');
+        const name = r.name ? `<div class="small text-muted fw-normal">${r.name}</div>` : '';
+        return `<tr><td class="text-start fw-bold">${r.code}${name}</td>${cells}
+            <td class="text-center fw-bold text-danger">${r.avg>=100?Math.round(r.avg):r.avg}</td>
+            <td class="text-center text-muted">${r.max>=100?Math.round(r.max):r.max}</td></tr>`;
+    }).join('') || `<tr><td colspan="${d.nperiod+3}" class="text-center text-muted py-3">无影子价格数据</td></tr>`;
+}
+switchSh(document.querySelector('button.btn-outline-danger'), 'equip');
+</script>
+{% endblock %}

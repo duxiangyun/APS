@@ -50,6 +50,49 @@
         </table>
     </div>
 </div>
+
+{% if data.fixtures %}
+<div class="card mt-3">
+    <div class="card-header d-flex align-items-center">
+        <strong><i class="fas fa-toolbox text-secondary"></i> 工装排程热力</strong>
+        <span class="ms-auto small text-muted">
+            格内为占用工时；设备加班 <b class="{{ 'text-danger' if data.equip_overload_n else '' }}">{{ data.equip_overload_n }}</b> 项 ·
+            工装加班 <b class="{{ 'text-danger' if data.fixt_overload_n else '' }}">{{ data.fixt_overload_n }}</b> 项
+            {{ '（本期最优解无加班）' if not data.equip_overload_n and not data.fixt_overload_n }}
+        </span>
+    </div>
+    <div class="card-body table-responsive">
+        {% set max_load = data.fixt_max_load if data.fixt_max_load > 0 else 1 %}
+        <table class="table table-bordered table-sm mb-0" style="font-size:0.78rem">
+            <thead><tr class="text-center">
+                <th class="text-start" style="min-width:90px">工装 \\ 周期</th>
+                {% for t in data.periods %}<th style="width:46px">{{ t }}</th>{% endfor %}
+                <th style="width:58px">峰值率</th><th style="width:58px">平均率</th>
+            </tr></thead>
+            <tbody>
+            {% for f in data.fixtures %}
+                <tr>
+                    <td class="text-start fw-bold"><a href="/res/fixt_load">{{ f.code }}</a></td>
+                    {% for v in f.loads %}
+                        {% if v < 0.5 %}
+                        <td class="text-center" style="background:#e9ecef;color:transparent" title="{{ f.code }} 第{{ loop.index }}期：空闲">0</td>
+                        {% else %}
+                        {% set ratio = (v / max_load * 100) | round | int %}
+                        {% set light = (88 - v / max_load * 34) | round %}
+                        <td class="text-center" style="background:hsl(200,65%,{{ light }}%);color:{{ '#fff' if v / max_load > 0.55 else '#212529' }}"
+                            title="{{ f.code }} 第{{ loop.index }}期：占用 {{ v }} 工时">{{ v | round(0) | int }}</td>
+                        {% endif %}
+                    {% endfor %}
+                    <td class="text-center fw-bold" style="color:{{ '#dc3545' if f.max_rate >= 100 else ('#fd7e14' if f.max_rate >= 90 else '#212529') }}">{{ f.max_rate }}%</td>
+                    <td class="text-center text-muted">{{ f.avg_rate }}%</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
 <div class="alert alert-light border mt-3 small mb-0">
     <i class="fas fa-info-circle"></i> 说明：本图为周期粒度排程（与计划期数一致）；单元格内数字为能力占用率（%），
     加工明细（物料/工序/路线/数量/工时）见悬停提示，原始数据见「输出结果 → 自制件/产品加工计划」。

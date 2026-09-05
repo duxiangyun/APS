@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block content %}
+<h4><i class="fas fa-list-ul text-primary"></i> 物料需求清单 <small class="text-muted">毛需求 = 期初库存 + 计划供给 − 期末库存（模型物料平衡口径）</small></h4>
+{% if not data.has_result %}
+<div class="alert alert-info mt-3">暂无排产结果，请先运行排产。</div>
+{% else %}
+<div class="row">
+    <div class="col-md-3"><div class="metric-card text-center border-start border-primary border-4">
+        <div class="metric-label">毛需求物料数</div>
+        <div class="metric-value">{{ data.rows | length }}</div>
+        <div class="small text-muted">自制件 {{ data.summary.n_semi }} · 原材料 {{ data.summary.n_raw }}</div>
+    </div></div>
+    <div class="col-md-3"><div class="metric-card text-center border-start border-info border-4">
+        <div class="metric-label">毛需求合计</div>
+        <div class="metric-value" style="color:#0dcaf0">{{ '{:,.0f}'.format(data.summary.total_gross) }}</div>
+        <div class="small text-muted">件（全部物料消耗）</div>
+    </div></div>
+    <div class="col-md-3"><div class="metric-card text-center border-start border-{{ 'danger' if data.summary.n_short else 'success' }} border-4">
+        <div class="metric-label">净缺口物料数</div>
+        <div class="metric-value" style="color:{{ '#dc3545' if data.summary.n_short else '#198754' }}">{{ data.summary.n_short }}</div>
+        <div class="small text-muted">不可行松弛量 > 0 的物料</div>
+    </div></div>
+    <div class="col-md-3"><div class="metric-card text-center border-start border-secondary border-4">
+        <div class="metric-label">求解批次</div>
+        <div class="metric-value" style="font-size:1.5rem">#{{ data.run_id }}</div>
+    </div></div>
+</div>
+
+<div class="card"><div class="card-header">
+    <strong>物料供需明细</strong>
+    <div class="btn-group btn-group-sm float-end" role="group">
+        <button class="btn btn-outline-secondary active" onclick="filterCat(this,'')">全部</button>
+        <button class="btn btn-outline-primary" onclick="filterCat(this,'产品')">产品</button>
+        <button class="btn btn-outline-success" onclick="filterCat(this,'自制件')">自制件</button>
+        <button class="btn btn-outline-secondary" onclick="filterCat(this,'原材料')">原材料</button>
+    </div>
+</div>
+    <div class="card-body table-responsive p-0">
+        <table class="table table-sm table-hover mb-0" style="font-size:0.85rem" id="matTable">
+            <thead><tr class="table-light">
+                <th>类别</th><th>物料代码</th><th>物料名称</th>
+                <th class="text-end">期初库存</th>
+                <th class="text-end">计划生产</th>
+                <th class="text-end">外协</th>
+                <th class="text-end">计划采购</th>
+                <th class="text-end">毛需求</th>
+                <th class="text-end">期末库存</th>
+                <th class="text-end">净缺口</th>
+                <th class="text-end">采购提前期</th>
+            </tr></thead>
+            <tbody>
+            {% for r in data.rows %}
+            <tr data-cat="{{ r.category }}" class="{{ 'table-danger' if r.slack > 0.01 else '' }}">
+                <td><span class="badge {{ 'bg-primary' if r.category=='产品' else ('bg-success' if r.category=='自制件' else 'bg-secondary') }}">{{ r.category }}</span></td>
+                <td class="fw-bold">{{ r.code }}</td>
+                <td class="small text-muted">{{ r.name }}</td>
+                <td class="text-end">{{ r.init if r.init else '' }}</td>
+                <td class="text-end">{{ (r.prod + r.self) if (r.prod + r.self) else '' }}</td>
+                <td class="text-end text-warning">{{ r.out if r.out else '' }}</td>
+                <td class="text-end">{{ r.pur if r.pur else '' }}</td>
+                <td class="text-end fw-bold">{{ r.gross if r.gross else '' }}</td>
+                <td class="text-end">{{ r.final if r.final else '' }}</td>
+                <td class="text-end {{ 'text-danger fw-bold' if r.slack > 0.01 else 'text-muted' }}">{{ r.slack if r.slack > 0.01 else '0' }}</td>
+                <td class="text-end">{{ r.pur_lt if r.pur_lt is not none else '' }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+<div class="alert alert-light border mt-3 small mb-0">
+    <i class="fas fa-info-circle"></i>
+    <b>口径说明</b>：毛需求按模型物料平衡恒等式推算（期初库存 + 计划生产/外协/采购 − 期末库存），
+    已自动涵盖<b>虚拟件、外协成品、物料替代、在制品、损耗率</b>等模型口径，与求解结果完全一致；
+    计划生产 = 产品/自制件排产量，原材料对应的是计划采购量。<b>净缺口</b>来自不可行松弛量（罚成本 100 万/单位），
+    正常最优解为 0；非 0 表示该物料供给无法满足需求。原材料采购提前期供采购员倒排下单期参考。
+</div>
+{% endif %}
+{% endblock %}
+{% block extra_js %}
+<script>
+function filterCat(btn, cat) {
+    document.querySelectorAll('#matTable tbody tr').forEach(tr => {
+        tr.style.display = (!cat || tr.dataset.cat === cat) ? '' : 'none';
+    });
+    btn.parentElement.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+}
+</script>
+{% endblock %}

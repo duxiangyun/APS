@@ -17,6 +17,8 @@ from app.services.analysis_service import (
     get_bottleneck_analysis, get_inventory_analysis, get_cost_analysis,
     get_outsource_analysis, get_versions, get_version_compare,
     get_validation_report, start_solve, solve_status,
+    get_material_requirements, get_order_kitting, get_psi_board,
+    get_supply_board, get_shadow_heat,
 )
 from app.constants import SIDEBAR_MENU
 
@@ -41,6 +43,42 @@ async def vis_gantt(request: Request, conn: sqlite3.Connection = Depends(get_db_
 async def vis_orders(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
     return templates.TemplateResponse("vis/orders.html",
                                       _ctx(request, "vis_orders", data=get_order_delivery_board(conn)))
+
+
+@router.get("/vis/materials", response_class=HTMLResponse)
+async def vis_materials(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
+    return templates.TemplateResponse("vis/materials.html",
+                                      _ctx(request, "vis_materials", data=get_material_requirements(conn)))
+
+
+@router.get("/vis/kitting", response_class=HTMLResponse)
+async def vis_kitting(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
+    return templates.TemplateResponse("vis/kitting.html",
+                                      _ctx(request, "vis_kitting", data=get_order_kitting(conn)))
+
+
+@router.get("/vis/psi", response_class=HTMLResponse)
+async def vis_psi(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
+    data = get_psi_board(conn)
+    return templates.TemplateResponse(
+        "vis/psi.html",
+        _ctx(request, "vis_psi", data=data, chart_json=json.dumps(data, ensure_ascii=False)))
+
+
+@router.get("/vis/supply", response_class=HTMLResponse)
+async def vis_supply(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
+    data = get_supply_board(conn)
+    return templates.TemplateResponse(
+        "vis/supply.html",
+        _ctx(request, "vis_supply", data=data, chart_json=json.dumps(data, ensure_ascii=False)))
+
+
+@router.get("/vis/shadow", response_class=HTMLResponse)
+async def vis_shadow(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
+    data = get_shadow_heat(conn)
+    return templates.TemplateResponse(
+        "vis/shadow.html",
+        _ctx(request, "vis_shadow", data=data, chart_json=json.dumps(data, ensure_ascii=False)))
 
 
 # ---------------- 分析中心 ----------------

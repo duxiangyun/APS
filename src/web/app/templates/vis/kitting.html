@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block content %}
+<h4><i class="fas fa-clipboard-list text-primary"></i> 订单齐套视图 <small class="text-muted">订单交付齐套状态 + BOM 多级展开标准用量</small></h4>
+{% if not data.has_result %}
+<div class="alert alert-info mt-3">暂无排产结果，请先运行排产。</div>
+{% else %}
+<div class="row">
+    <div class="col-md-3"><div class="metric-card text-center border-start border-success border-4">
+        <div class="metric-label">订单齐套率</div>
+        <div class="metric-value" style="color:#198754">{{ data.kitting_rate }}%</div>
+        <div class="small text-muted">{{ data.n_ontime }} / {{ data.total }} 单按期齐套</div>
+    </div></div>
+    <div class="col-md-3"><div class="metric-card text-center border-start border-warning border-4">
+        <div class="metric-label">部分齐套</div>
+        <div class="metric-value" style="color:#fd7e14">{{ data.n_partial }}</div>
+    </div></div>
+    <div class="col-md-3"><div class="metric-card text-center border-start border-danger border-4">
+        <div class="metric-label">延期齐套</div>
+        <div class="metric-value" style="color:#dc3545">{{ data.n_late }}</div>
+    </div></div>
+    <div class="col-md-3"><div class="metric-card text-center border-start border-dark border-4">
+        <div class="metric-label">未齐套（未交付）</div>
+        <div class="metric-value" style="color:#212529">{{ data.n_undelivered }}</div>
+    </div></div>
+</div>
+
+<div class="card"><div class="card-body p-0">
+    {% for o in data.orders %}
+    <div class="border-bottom p-3">
+        <div class="d-flex align-items-center flex-wrap">
+            <span class="badge bg-{{ o.color }} me-2" style="font-size:0.9rem">{{ o.status }}</span>
+            <strong class="me-2">订单 {{ o.order_id }}</strong>
+            <span class="me-2">{{ o.product }} <span class="text-muted small">{{ o.product_name }}</span></span>
+            <span class="badge bg-secondary me-2">等级 {{ o.priority }}</span>
+            <span class="small me-2">订单量 <b>{{ o.qty | round(0) | int }}</b></span>
+            <span class="small me-2">交期 <b>第{{ o.due }}期</b></span>
+            <span class="small me-2">末次交付 <b class="{{ 'text-danger' if o.last_deliver and o.last_deliver > o.due else '' }}">{{ ('第' + o.last_deliver|string + '期') if o.last_deliver else '—' }}</b></span>
+            {% if o.delayed_qty > 0.01 %}<span class="small text-warning me-2">延期量 {{ o.delayed_qty | round(1) }}</span>{% endif %}
+            {% if o.penalty > 0 %}<span class="small text-danger me-2">罚金 ¥{{ '{:,.0f}'.format(o.penalty) }}</span>{% endif %}
+            <button class="btn btn-sm btn-outline-primary ms-auto" type="button" data-bs-toggle="collapse"
+                    data-bs-target="#bom{{ o.order_id }}">
+                <i class="fas fa-sitemap"></i> BOM 需求明细（{{ o.components | length }} 项）
+            </button>
+        </div>
+        {% if o.reasons %}
+        <div class="small text-muted mt-2">
+            <i class="fas fa-exclamation-triangle text-warning"></i>
+            {{ o.reasons | join('；') }}
+        </div>
+        {% endif %}
+        <div class="collapse mt-2" id="bom{{ o.order_id }}">
+            <table class="table table-sm table-bordered mb-0" style="font-size:0.82rem">
+                <thead><tr class="table-light">
+                    <th>类别</th><th>物料代码</th><th>物料名称</th>
+                    <th class="text-end">BOM 标准需求量</th><th class="text-end">本批次计划供给量</th>
+                </tr></thead>
+                <tbody>
+                {% for c in o.components %}
+                <tr>
+                    <td><span class="badge {{ 'bg-success' if c.category=='自制件' else ('bg-secondary' if c.category=='原材料' else 'bg-primary') }}">{{ c.category }}</span></td>
+                    <td>{{ c.code }}</td>
+                    <td class="text-muted small">{{ c.name }}</td>
+                    <td class="text-end fw-bold">{{ c.qty }}</td>
+                    <td class="text-end">{{ c.plan_supply if c.plan_supply else '—' }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endfor %}
+</div></div>
+<div class="alert alert-light border mt-3 small mb-0">
+    <i class="fas fa-info-circle"></i>
+    <b>齐套判定</b>：依据排产交付结果——按期足额交付=齐套，部分按期/延期=部分齐套或延期齐套，未交付=未齐套；
+    延期/未齐套订单自动关联不可行松弛量做归因（物料缺口 / 设备工装能力缺口 / 产能时序紧张）。
+    <b>BOM 需求明细</b>为按订单量递归展开的标准用量（产品→自制件→原材料，含多级共享子件汇总）；
+    "计划供给量"为本次排产该物料的总自制/外协/采购量（多订单共享，故不按单拆分）。
+    外协成品、物料替代等由模型自动处理，实际消耗见「物料需求清单」页。
+</div>
+{% endif %}
+{% endblock %}
