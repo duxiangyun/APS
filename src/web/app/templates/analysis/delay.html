@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block content %}
+<h4><i class="fas fa-clock text-warning"></i> 延期分析</h4>
+{% if not data.has_result %}
+<div class="alert alert-info mt-3">暂无排产结果，请先运行排产。</div>
+{% else %}
+<div class="row">
+    <div class="col-md-3"><div class="metric-card text-center border-start border-danger border-4">
+        <div class="metric-label">延期订单数</div>
+        <div class="metric-value" style="color:#dc3545">{{ data.delayed_count }}</div>
+    </div></div>
+    <div class="col-md-3"><div class="metric-card text-center border-start border-warning border-4">
+        <div class="metric-label">延期罚金总额</div>
+        <div class="metric-value" style="color:#fd7e14;font-size:1.6rem">¥{{ '{:,.0f}'.format(data.total_penalty) }}</div>
+    </div></div>
+    <div class="col-md-3"><div class="metric-card text-center border-start border-secondary border-4">
+        <div class="metric-label">不可行罚成本</div>
+        <div class="metric-value" style="font-size:1.6rem;color:{{ '#dc3545' if data.infeasible_cost > 0 else '#adb5bd' }}">¥{{ '{:,.0f}'.format(data.infeasible_cost) }}</div>
+    </div></div>
+    <div class="col-md-3"><div class="metric-card text-center border-start border-info border-4">
+        <div class="metric-label">疑似瓶颈设备</div>
+        <div class="metric-value" style="color:#0dcaf0;font-size:1.4rem">{{ data.bottlenecks[0].resource_code if data.bottlenecks else '-' }}</div>
+        <div class="small text-muted">峰值负荷 {{ data.bottlenecks[0].max_load_rate_pct | round(0) if data.bottlenecks else '-' }}%</div>
+    </div></div>
+</div>
+
+<div class="row">
+    <div class="col-lg-7">
+        <div class="card"><div class="card-header"><strong>延期订单清单</strong></div>
+            <div class="card-body table-responsive p-0">
+                <table class="table table-sm table-hover mb-0" style="font-size:0.85rem">
+                    <thead><tr class="table-light">
+                        <th>订单</th><th>产品</th><th>等级</th><th>交期</th><th>实际</th><th>延期</th>
+                        <th class="text-end">延期量</th><th class="text-end">罚金</th><th class="text-end">影子价格</th>
+                    </tr></thead>
+                    <tbody>
+                    {% for o in data.orders %}
+                    <tr>
+                        <td class="fw-bold">{{ o.order_id }}</td>
+                        <td class="small">{{ o.material_code }}</td>
+                        <td>{{ o.priority_level }}</td>
+                        <td>第{{ o.due }}期</td>
+                        <td class="text-danger">第{{ o.delivered }}期</td>
+                        <td><span class="badge bg-danger">{{ o.delay_periods }}期</span></td>
+                        <td class="text-end">{{ o.delayed_qty | round(1) }}</td>
+                        <td class="text-end text-danger">¥{{ '{:,.0f}'.format(o.penalty) }}</td>
+                        <td class="text-end text-muted">{{ o.shadow }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="9" class="text-center text-success py-4"><i class="fas fa-check-circle"></i> 无延期订单</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-5">
+        <div class="card"><div class="card-header"><strong><i class="fas fa-fire text-danger"></i> 延期归因（规则推断）</strong></div>
+            <div class="card-body">
+                <p class="small text-muted">延期通常由瓶颈产能（高负荷+高影子价格）或物料缺口导致，下列设备为疑似产能瓶颈：</p>
+                <h6 class="mt-2">峰值负荷率 Top 5</h6>
+                <table class="table table-sm mb-3" style="font-size:0.85rem">
+                    {% for b in data.bottlenecks %}
+                    <tr><td style="width:90px">{{ b.resource_code }}</td>
+                        <td><div class="progress" style="height:16px">
+                            <div class="progress-bar {{ 'bg-danger' if b.max_load_rate_pct >= 100 else 'bg-warning' }}"
+                                 style="width:{{ [b.max_load_rate_pct, 100] | min }}%"></div></div></td>
+                        <td class="text-end fw-bold">{{ b.max_load_rate_pct | round(1) }}%</td></tr>
+                    {% endfor %}
+                </table>
+                <h6>设备影子价格 Top 5（边际价值越高越稀缺）</h6>
+                <table class="table table-sm mb-0" style="font-size:0.85rem">
+                    {% for s in data.top_shadow %}
+                    <tr><td style="width:90px">{{ s.resource_code }}</td>
+                        <td><div class="progress" style="height:16px">
+                            <div class="progress-bar bg-info" style="width:{{ [s.avg_shadow / (data.top_shadow[0].avg_shadow if data.top_shadow else 1) * 100, 100] | min }}%"></div></div></td>
+                        <td class="text-end fw-bold">{{ s.avg_shadow }}</td></tr>
+                    {% endfor %}
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

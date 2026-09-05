@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block content %}
+<h4><i class="fas fa-yen-sign text-success"></i> 成本分析</h4>
+{% if not data.has_result %}
+<div class="alert alert-info mt-3">暂无排产结果，请先运行排产。</div>
+{% else %}
+<div class="row">
+    <div class="col-md-3"><div class="metric-card text-center border-start border-primary border-4">
+        <div class="metric-label">销售收入</div>
+        <div class="metric-value" style="font-size:1.5rem">¥{{ '{:,.0f}'.format(data.revenue) }}</div>
+    </div></div>
+    <div class="col-md-3"><div class="metric-card text-center border-start border-danger border-4">
+        <div class="metric-label">总成本</div>
+        <div class="metric-value" style="color:#dc3545;font-size:1.5rem">¥{{ '{:,.0f}'.format(data.total_cost) }}</div>
+    </div></div>
+    <div class="col-md-3"><div class="metric-card text-center border-start border-info border-4">
+        <div class="metric-label">利润总额</div>
+        <div class="metric-value" style="color:#0dcaf0;font-size:1.5rem">¥{{ '{:,.0f}'.format(data.profit) }}</div>
+    </div></div>
+    <div class="col-md-3"><div class="metric-card text-center border-start border-success border-4">
+        <div class="metric-label">利润率</div>
+        <div class="metric-value" style="color:#198754">{{ data.profit_rate }}%</div>
+    </div></div>
+</div>
+<div class="row">
+    <div class="col-lg-5">
+        <div class="card"><div class="card-header"><strong>成本构成</strong></div>
+            <div class="card-body"><canvas id="costPie" height="220"></canvas></div>
+        </div>
+    </div>
+    <div class="col-lg-7">
+        <div class="card"><div class="card-header"><strong>收入 → 成本 → 利润</strong></div>
+            <div class="card-body"><canvas id="wfBar" height="220"></canvas></div>
+        </div>
+    </div>
+</div>
+<div class="card mt-3"><div class="card-header"><strong>成本明细</strong></div>
+    <div class="card-body table-responsive p-0">
+        <table class="table table-sm mb-0" style="font-size:0.9rem">
+            <thead><tr class="table-light"><th>成本项</th><th class="text-end">金额</th><th class="text-end">占总成本</th><th style="width:40%">占比</th></tr></thead>
+            <tbody>
+            {% for it in data.cost_items %}
+                {% if it.value > 0 %}
+                <tr><td><span style="display:inline-block;width:12px;height:12px;background:{{ it.color }};margin-right:6px"></span>{{ it.name }}</td>
+                    <td class="text-end">¥{{ '{:,.0f}'.format(it.value) }}</td>
+                    <td class="text-end">{{ (it.value / data.total_cost * 100) | round(1) if data.total_cost else 0 }}%</td>
+                    <td><div class="progress" style="height:14px"><div class="progress-bar" style="width:{{ it.value / data.total_cost * 100 if data.total_cost else 0 }}%;background:{{ it.color }}"></div></div></td>
+                </tr>
+                {% endif %}
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+{% block extra_js %}
+<script src="/static/chart.umd.min.js"></script>
+<script>
+const d = {{ chart_json | safe }};
+const items = d.cost_items.filter(x => x.value > 0);
+new Chart(document.getElementById('costPie'), {
+    type: 'doughnut',
+    data: {labels: items.map(x => x.name), datasets: [{data: items.map(x => x.value), backgroundColor: items.map(x => x.color)}]},
+    options: {plugins: {tooltip: {callbacks: {label: c => c.label + ': ¥' + c.parsed.toLocaleString()}}}}
+});
+new Chart(document.getElementById('wfBar'), {
+    type: 'bar',
+    data: {labels: ['销售收入', '制造成本', '原材料采购', '外协费用', '工装费用', '延期罚金', '库存成本', '利润'],
+        datasets: [{
+            data: [d.revenue, -d.cost_items[0].value, -d.cost_items[1].value, -d.cost_items[2].value,
+                   -d.cost_items[3].value, -d.cost_items[4].value, -d.cost_items[5].value, d.profit],
+            backgroundColor: ['#198754', '#0d6efd', '#6f42c1', '#fd7e14', '#20c997', '#dc3545', '#0dcaf0', '#0dcaf0']
+        }]},
+    options: {plugins: {legend: {display: false}, tooltip: {callbacks: {label: c => '¥' + c.parsed.y.toLocaleString()}}},
+        scales: {y: {ticks: {callback: v => '¥' + (v/10000).toFixed(0) + '万'}}}}
+});
+</script>
+{% endblock %}

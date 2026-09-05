@@ -950,7 +950,7 @@ def get_result_view_by_key(table_key: str) -> dict | None:
 
 
 SIDEBAR_MENU = [
-    {"key": "dashboard", "label": "工作台", "icon": "fa-chart-pie", "enabled": False, "children": []},
+    {"key": "dashboard", "label": "工作台", "icon": "fa-chart-pie", "enabled": True, "url": "/dashboard", "children": []},
     {
         "key": "base_data",
         "label": "基础数据",
@@ -968,6 +968,50 @@ SIDEBAR_MENU = [
             {"key": "alt_rule", "label": "替代规则", "url": "/base-data/alt_rule", "icon": "fa-exchange-alt"},
             {"key": "outsource", "label": "外协", "url": "/base-data/outsource", "icon": "fa-truck"},
             {"key": "purchase_limit", "label": "采购限制", "url": "/base-data/purchase_limit", "icon": "fa-shopping-cart"},
+        ],
+    },
+    {
+        "key": "plan_opt",
+        "label": "计划优化",
+        "icon": "fa-play-circle",
+        "enabled": True,
+        "children": [
+            {"key": "solve", "label": "排产触发", "url": "/solve", "icon": "fa-rocket"},
+        ],
+    },
+    {
+        "key": "visual",
+        "label": "排程可视化",
+        "icon": "fa-chart-gantt",
+        "enabled": True,
+        "children": [
+            {"key": "vis_gantt", "label": "生产甘特图", "url": "/vis/gantt", "icon": "fa-stream"},
+            {"key": "vis_orders", "label": "订单交付看板", "url": "/vis/orders", "icon": "fa-clipboard-check"},
+            {"key": "equip_load_link", "label": "设备负荷明细", "url": "/res/equip_load", "icon": "fa-microchip"},
+            {"key": "shadow_link", "label": "影子价格", "url": "/res/shadow_prod", "icon": "fa-dollar-sign"},
+        ],
+    },
+    {
+        "key": "analysis",
+        "label": "分析中心",
+        "icon": "fa-chart-line",
+        "enabled": True,
+        "children": [
+            {"key": "analysis_delay", "label": "延期分析", "url": "/analysis/delay", "icon": "fa-clock"},
+            {"key": "analysis_bottleneck", "label": "瓶颈分析", "url": "/analysis/bottleneck", "icon": "fa-fire"},
+            {"key": "analysis_inventory", "label": "库存分析", "url": "/analysis/inventory", "icon": "fa-boxes"},
+            {"key": "analysis_cost", "label": "成本分析", "url": "/analysis/cost", "icon": "fa-yen-sign"},
+            {"key": "analysis_outsource", "label": "外协分析", "url": "/analysis/outsource", "icon": "fa-truck"},
+        ],
+    },
+    {
+        "key": "versions_menu",
+        "label": "计划版本",
+        "icon": "fa-history",
+        "enabled": True,
+        "children": [
+            {"key": "versions", "label": "版本列表", "url": "/versions", "icon": "fa-list"},
+            {"key": "versions_compare", "label": "方案对比", "url": "/versions/compare", "icon": "fa-balance-scale"},
         ],
     },
     {
@@ -1068,12 +1112,16 @@ SIDEBAR_MENU = [
             {"key": "inf_equip", "label": "设备不可行量", "url": "/res/inf_equip", "icon": "fa-exclamation-triangle"},
         ],
     },
-    {"key": "plan_opt", "label": "计划优化", "icon": "fa-calculator", "enabled": False, "children": []},
-    {"key": "scheduling", "label": "排程可视化", "icon": "fa-chart-bar", "enabled": False, "children": []},
-    {"key": "analysis", "label": "分析中心", "icon": "fa-chart-line", "enabled": False, "children": []},
+    {
+        "key": "system",
+        "label": "系统管理",
+        "icon": "fa-cogs",
+        "enabled": True,
+        "children": [
+            {"key": "admin_validation", "label": "数据校验", "url": "/admin/validation", "icon": "fa-clipboard-check"},
+        ],
+    },
     {"key": "scenario", "label": "场景管理", "icon": "fa-project-diagram", "enabled": False, "children": []},
-    {"key": "plan_version", "label": "计划版本", "icon": "fa-code-branch", "enabled": False, "children": []},
-    {"key": "system", "label": "系统管理", "icon": "fa-cogs", "enabled": False, "children": []},
     {"key": "integration", "label": "集成管理", "icon": "fa-plug", "enabled": False, "children": []},
 ]
 

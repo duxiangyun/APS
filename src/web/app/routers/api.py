@@ -22,6 +22,7 @@ from app.services.table_service import (
     calc_total_pages,
 )
 from app.services.meta_service import get_display_columns, apply_enum_display
+from app.services.dashboard_service import get_dashboard
 from app.constants import COLUMN_DISPLAY_ORDER
 
 router = APIRouter(prefix="/api/base-data", tags=["base-data-api"])
@@ -29,6 +30,13 @@ stg_router = APIRouter(prefix="/api/stg", tags=["stg-api"])
 biz_router = APIRouter(prefix="/api/biz", tags=["biz-api"])
 alg_router = APIRouter(prefix="/api/alg", tags=["alg-api"])
 res_router = APIRouter(prefix="/api/res", tags=["res-api"])
+dash_router = APIRouter(prefix="/api/dashboard", tags=["dashboard-api"])
+
+
+@dash_router.get("")
+async def dashboard_data(conn: sqlite3.Connection = Depends(get_db_conn)):
+    """工作台聚合数据：KPI 指标 / 异常告警 / 设备负荷矩阵"""
+    return get_dashboard(conn)
 
 
 @router.get("", response_model=TableOverviewResponse)

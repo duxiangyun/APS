@@ -22,11 +22,23 @@ from app.services.table_service import (
     calc_total_pages,
 )
 from app.services.meta_service import get_display_columns, apply_enum_display
+from app.services.dashboard_service import get_dashboard
 from app.constants import COLUMN_DISPLAY_ORDER, SIDEBAR_MENU
 
 router = APIRouter(tags=["pages"])
 _BASE_DIR = Path(__file__).resolve().parent.parent.parent
 templates = Jinja2Templates(directory=str(_BASE_DIR / "app" / "templates"))
+
+
+@router.get("/dashboard", response_class=HTMLResponse)
+async def dashboard(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
+    data = get_dashboard(conn)
+    return templates.TemplateResponse("dashboard.html", {
+        "request": request,
+        "data": data,
+        "active_page": "dashboard",
+        "sidebar_menu": SIDEBAR_MENU,
+    })
 
 
 @router.get("/", response_class=HTMLResponse)

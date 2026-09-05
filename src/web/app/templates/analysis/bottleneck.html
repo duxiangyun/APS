@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block content %}
+<h4><i class="fas fa-fire text-danger"></i> 瓶颈分析 <small class="text-muted">设备负荷率 + 影子价格双指标</small></h4>
+{% if not data.has_result %}
+<div class="alert alert-info mt-3">暂无排产结果，请先运行排产。</div>
+{% else %}
+<div class="row">
+    <div class="col-lg-6">
+        <div class="card"><div class="card-header"><strong>设备负荷率排行</strong><span class="text-muted small ms-2">峰值 ≥ 100% 满产，≥ 90% 高负荷</span></div>
+            <div class="card-body">
+                {% for l in data.loads %}
+                <div class="d-flex align-items-center mb-2">
+                    <div class="text-end me-2" style="width:80px;font-size:0.85rem">{{ l.code }}</div>
+                    <div class="progress flex-grow-1" style="height:18px">
+                        <div class="progress-bar" style="width:{{ [l.max_rate, 100] | min }}%;background:{{ '#dc3545' if l.max_rate >= 100 else ('#fd7e14' if l.max_rate >= 90 else ('#ffc107' if l.max_rate >= 60 else '#20c997')) }}"></div>
+                    </div>
+                    <div class="ms-2 small" style="width:104px">
+                        <span class="fw-bold">{{ l.max_rate }}%</span>
+                        <span class="text-muted">/ 均{{ l.avg_rate }}%</span>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card"><div class="card-header"><strong>设备影子价格排行</strong><span class="text-muted small ms-2">12 期均值（连续松弛 LP 解下有意义）</span></div>
+            <div class="card-body">
+                {% for s in data.shadows %}
+                <div class="d-flex align-items-center mb-2">
+                    <div class="text-end me-2" style="width:80px;font-size:0.85rem">{{ s.code }}</div>
+                    <div class="progress flex-grow-1" style="height:18px">
+                        <div class="progress-bar bg-info" style="width:{{ [s.avg / data.shadows[0].avg * 100 if data.shadows[0].avg else 0, 100] | min }}%"></div>
+                    </div>
+                    <div class="ms-2 small" style="width:104px">
+                        <span class="fw-bold text-info">{{ s.avg }}</span>
+                        <span class="text-muted">/ 峰{{ s.max }}</span>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        <div class="alert alert-light border small mt-3 mb-0">
+            <i class="fas fa-lightbulb text-warning"></i>
+            <b>解读</b>：负荷率反映"用了多少能力"，影子价格反映"再多一单位能力能带来多少边际收益"。
+            两者同时高的设备是真正的<b class="text-danger">瓶颈资源</b>——扩产/加班/外协应优先投向这些设备。
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

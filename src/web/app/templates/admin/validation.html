@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<h4><i class="fas fa-clipboard-check text-primary"></i> 数据校验 <small class="text-muted">主数据完整性 / 一致性检查（只读）</small></h4>
+<div class="card"><div class="card-body table-responsive p-0">
+    <table class="table table-sm table-hover mb-0" style="font-size:0.92rem">
+        <thead><tr class="table-light">
+            <th style="width:60px">状态</th><th>检查项</th><th style="width:100px" class="text-end">异常数</th><th>异常明细</th>
+        </tr></thead>
+        <tbody>
+        {% for c in checks %}
+        <tr class="{{ 'table-danger' if c.passed == false else '' }}">
+            <td>
+                {% if c.passed == true %}<span class="badge bg-success"><i class="fas fa-check"></i> 通过</span>
+                {% elif c.passed == false %}<span class="badge bg-danger"><i class="fas fa-times"></i> 异常</span>
+                {% else %}<span class="badge bg-secondary"><i class="fas fa-question"></i> 跳过</span>{% endif %}
+            </td>
+            <td>{{ c.name }}</td>
+            <td class="text-end">{{ c.count if c.passed == false else 0 }}</td>
+            <td class="small text-muted">
+                {% if c.details %}<details><summary class="text-primary">查看 {{ c.details | length }} 条</summary>
+                    {{ c.details | join('；') }}</details>{% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div></div>
+<p class="text-muted small mt-2">校验覆盖：订单/BOM/工艺路线的引用完整性、物料扩展信息完整性、交期与库存参数合理性、全局参数完整性、最新排产结果质量。</p>
+{% endblock %}

@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app.routers import api, pages
+from app.routers import api, pages, analysis
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 TEMPLATE_DIR = BASE_DIR / "app" / "templates"
@@ -20,6 +20,8 @@ app.include_router(api.stg_router)
 app.include_router(api.biz_router)
 app.include_router(api.alg_router)
 app.include_router(api.res_router)
+app.include_router(api.dash_router)
+app.include_router(analysis.router)
 
 
 @app.exception_handler(404)

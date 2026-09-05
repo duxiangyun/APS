@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block content %}
+<h4><i class="fas fa-stream text-primary"></i> 生产甘特图 <small class="text-muted">设备 × 周期 占用负荷（周期粒度）</small></h4>
+{% if not data.has_result %}
+<div class="alert alert-info mt-3">暂无排产结果，请先运行排产。</div>
+{% else %}
+<p class="text-muted small">单元格颜色 = 该设备该周期能力占用率（占用工时/班次可用能力），悬停查看加工的物料/工序明细；点击设备名跳转负荷明细。</p>
+<div class="card">
+    <div class="card-header d-flex align-items-center">
+        <strong>设备排程热力图</strong>
+        <div class="ms-auto d-flex align-items-center small">
+            <span class="me-1">空闲</span>
+            <span style="display:inline-block;width:14px;height:14px;background:#e9ecef;border:1px solid #dee2e6"></span>
+            <span style="display:inline-block;width:14px;height:14px;background:hsl(120,60%,75%)"></span>
+            <span style="display:inline-block;width:14px;height:14px;background:hsl(60,75%,60%)"></span>
+            <span style="display:inline-block;width:14px;height:14px;background:hsl(25,90%,55%)"></span>
+            <span style="display:inline-block;width:14px;height:14px;background:hsl(0,80%,55%)"></span>
+            <span class="ms-1">满负荷</span>
+        </div>
+    </div>
+    <div class="card-body table-responsive">
+        <table class="table table-bordered table-sm mb-0" style="font-size:0.78rem">
+            <thead><tr class="text-center">
+                <th class="text-start" style="min-width:90px">设备 \\ 周期</th>
+                {% for t in data.periods %}<th style="width:46px">{{ t }}</th>{% endfor %}
+                <th style="width:58px">峰值</th><th style="width:58px">平均</th>
+            </tr></thead>
+            <tbody>
+            {% for e in data.equipments %}
+                <tr>
+                    <td class="text-start fw-bold"><a href="/res/equip_load">{{ e.code }}</a></td>
+                    {% for c in e.cells %}
+                        {% if c.rate < 0.5 %}
+                        <td class="text-center" style="background:#e9ecef;color:transparent" title="{{ e.code }} 第{{ c.period }}期：空闲">0</td>
+                        {% else %}
+                        {% set hue = (120 - [c.rate, 100] | min * 1.2) | round %}
+                        {% set light = (82 - c.rate * 0.28) | round %}
+                        <td class="text-center" style="background:hsl({{ hue }},70%,{{ light }}%);color:{{ '#fff' if c.rate >= 75 else '#212529' }};cursor:pointer"
+                            data-bs-toggle="tooltip" data-bs-html="true"
+                            title="<b>{{ e.code }} 第{{ c.period }}期</b> 占用 {{ c.rate }}%<br>{% for op in c.ops %}{{ op.material }} {{ op.operation }}(路线{{ op.route }}) 加工{{ op.prod or '-' }}件 / 工时{{ op.cap }}<br>{% endfor %}">
+                            {{ c.rate | round(0) | int }}
+                        </td>
+                        {% endif %}
+                    {% endfor %}
+                    <td class="text-center fw-bold" style="color:{{ '#dc3545' if e.max_rate >= 100 else ('#fd7e14' if e.max_rate >= 90 else '#212529') }}">{{ e.max_rate }}%</td>
+                    <td class="text-center text-muted">{{ e.avg_rate }}%</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+<div class="alert alert-light border mt-3 small mb-0">
+    <i class="fas fa-info-circle"></i> 说明：本图为周期粒度排程（与计划期数一致）；单元格内数字为能力占用率（%），
+    加工明细（物料/工序/路线/数量/工时）见悬停提示，原始数据见「输出结果 → 自制件/产品加工计划」。
+</div>
+{% endif %}
+{% endblock %}
+{% block extra_js %}
+<script>
+document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => new bootstrap.Tooltip(el));
+</script>
+{% endblock %}

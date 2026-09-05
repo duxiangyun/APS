@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+<h4><i class="fas fa-truck text-warning"></i> 外协分析 <small class="text-muted">外协 vs 自制结构占比</small></h4>
+{% if not data.has_result %}
+<div class="alert alert-info mt-3">暂无排产结果，请先运行排产。</div>
+{% else %}
+<div class="row">
+    <div class="col-md-3"><div class="metric-card text-center border-start border-warning border-4">
+        <div class="metric-label">外协费用</div>
+        <div class="metric-value" style="color:#fd7e14;font-size:1.5rem">¥{{ '{:,.0f}'.format(data.out_cost) }}</div>
+        <div class="small text-muted">占制造+外协 {{ data.out_cost_pct }}%</div>
+    </div></div>
+    <div class="col-md-3"><div class="metric-card text-center border-start border-primary border-4">
+        <div class="metric-label">制造成本</div>
+        <div class="metric-value" style="font-size:1.5rem">¥{{ '{:,.0f}'.format(data.mfg_cost) }}</div>
+    </div></div>
+    <div class="col-md-3"><div class="metric-card text-center border-start border-info border-4">
+        <div class="metric-label">外协数量</div>
+        <div class="metric-value" style="color:#0dcaf0;font-size:1.5rem">{{ data.out_qty | round(0) | int }}</div>
+        <div class="small text-muted">自制 {{ data.self_qty | round(0) | int }} 件</div>
+    </div></div>
+    <div class="col-md-3"><div class="metric-card text-center border-start border-success border-4">
+        <div class="metric-label">外协数量占比</div>
+        <div class="metric-value" style="color:#198754">{{ data.out_qty_pct }}%</div>
+    </div></div>
+</div>
+<div class="row">
+    <div class="col-lg-4">
+        <div class="card"><div class="card-header"><strong>成本结构</strong></div>
+            <div class="card-body"><canvas id="pie" height="200"></canvas></div>
+        </div>
+    </div>
+    <div class="col-lg-8">
+        <div class="card"><div class="card-header"><strong>外购物料明细（按费用降序）</strong></div>
+            <div class="card-body table-responsive p-0">
+                <table class="table table-sm table-hover mb-0" style="font-size:0.85rem">
+                    <thead><tr class="table-light"><th>物料代码</th><th class="text-end">外协数量</th><th class="text-end">外协费用</th><th>费用占比</th></tr></thead>
+                    <tbody>
+                    {% for it in data["items"] %}
+                    <tr><td>{{ it.code }}</td>
+                        <td class="text-end">{{ it.qty | round(1) }}</td>
+                        <td class="text-end text-warning">¥{{ '{:,.0f}'.format(it.cost) }}</td>
+                        <td><div class="progress" style="height:12px"><div class="progress-bar bg-warning"
+                            style="width:{{ it.cost / data.out_cost * 100 if data.out_cost else 0 }}%"></div></div></td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4" class="text-center text-muted py-3">本次排产无外协发生</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+{% block extra_js %}
+<script src="/static/chart.umd.min.js"></script>
+<script>
+const d = {{ chart_json | safe }};
+new Chart(document.getElementById('pie'), {
+    type: 'doughnut',
+    data: {labels: ['外协费用', '制造成本'],
+          datasets: [{data: [d.out_cost, d.mfg_cost], backgroundColor: ['#fd7e14', '#0d6efd']}]},
+    options: {plugins: {tooltip: {callbacks: {label: c => c.label + ': ¥' + c.parsed.toLocaleString()}}}}
+});
+</script>
+{% endblock %}

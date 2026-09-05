@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<h4><i class="fas fa-balance-scale text-primary"></i> 方案对比</h4>
+<form class="d-flex align-items-center mb-3" method="get">
+    <label class="me-2 fw-bold">版本 A</label>
+    <select name="a" class="form-select form-select-sm me-3" style="width:auto" onchange="this.form.submit()">
+        {% for v in versions %}<option value="{{ v.run_id }}" {{ 'selected' if v.run_id == a }}>#{{ v.run_id }} ({{ v.run_time }})</option>{% endfor %}
+    </select>
+    <label class="me-2 fw-bold">版本 B</label>
+    <select name="b" class="form-select form-select-sm me-3" style="width:auto" onchange="this.form.submit()">
+        {% for v in versions %}<option value="{{ v.run_id }}" {{ 'selected' if v.run_id == b }}>#{{ v.run_id }} ({{ v.run_time }})</option>{% endfor %}
+    </select>
+    <button class="btn btn-sm btn-primary"><i class="fas fa-sync"></i> 对比</button>
+</form>
+
+<div class="card"><div class="card-body table-responsive p-0">
+    <table class="table table-sm table-hover mb-0 align-middle" style="font-size:0.92rem">
+        <thead><tr class="table-light text-center">
+            <th class="text-start">指标</th>
+            <th style="width:160px">版本 A (#{{ a }})</th>
+            <th style="width:160px">版本 B (#{{ b }})</th>
+            <th style="width:140px">差异 (B−A)</th>
+            <th style="width:80px">更优</th>
+        </tr></thead>
+        <tbody>
+        {% for r in data.rows %}
+        <tr>
+            <td>{{ r.label }}</td>
+            <td class="text-center">{{ r.a }}</td>
+            <td class="text-center fw-bold">{{ r.b }}</td>
+            <td class="text-center {{ 'text-success' if r.better else ('text-danger' if r.better == '' and r.diff not in ('-','0','¥0','0.0%') else '') }}">
+                {{ r.diff }}
+            </td>
+            <td class="text-center">
+                {% if r.better == 'b' %}<span class="badge bg-success">B 优</span>
+                {% elif r.better == 'a' %}<span class="badge bg-primary">A 优</span>
+                {% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div></div>
+<p class="text-muted small mt-2">
+    说明：收入/利润等指标越大越优（绿色标记差异为正的版本），罚金/成本类指标越小越优；
+    负荷率类指标需在「分析中心 → 瓶颈分析」按版本查看（当前结果视图默认展示最新版本）。
+</p>
+{% endblock %}

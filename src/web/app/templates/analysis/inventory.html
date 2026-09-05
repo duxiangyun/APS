@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block content %}
+<h4><i class="fas fa-boxes text-primary"></i> 库存分析 <small class="text-muted">产品 / 自制件 / 原材料 库存水位趋势（含 0 期期初）</small></h4>
+{% if not data.has_result %}
+<div class="alert alert-info mt-3">暂无排产结果，请先运行排产。</div>
+{% else %}
+<div class="card"><div class="card-header"><strong>各期库存总量趋势</strong></div>
+    <div class="card-body"><canvas id="invChart" height="90"></canvas></div>
+</div>
+<div class="card mt-3"><div class="card-header"><strong>物料库存水位明细（按峰值库存降序前 30）</strong></div>
+    <div class="card-body table-responsive p-0">
+        <table class="table table-sm table-hover mb-0" style="font-size:0.85rem">
+            <thead><tr class="table-light">
+                <th>类别</th><th>物料代码</th><th class="text-end">期初(0期)</th><th class="text-end">期末</th>
+                <th class="text-end">峰值</th><th class="text-end">期均</th>
+            </tr></thead>
+            <tbody>
+            {% for m in data.materials[:30] %}
+            <tr>
+                <td><span class="badge {{ 'bg-primary' if m.category == '产品' else ('bg-success' if m.category == '自制件' else 'bg-secondary') }}">{{ m.category }}</span></td>
+                <td>{{ m.code }}</td>
+                <td class="text-end">{{ m.initial | round(1) }}</td>
+                <td class="text-end">{{ m.final | round(1) }}</td>
+                <td class="text-end fw-bold">{{ m.peak | round(1) }}</td>
+                <td class="text-end text-muted">{{ m.avg | round(1) }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+{% block extra_js %}
+<script src="/static/chart.umd.min.js"></script>
+<script>
+const d = {{ chart_json | safe }};
+new Chart(document.getElementById('invChart'), {
+    type: 'line',
+    data: {
+        labels: d.periods.map(t => '第' + t + '期'),
+        datasets: [
+            {label: '产品', data: d.series['产品'], borderColor: '#0d6efd', backgroundColor: '#0d6efd22', tension: .2, fill: true},
+            {label: '自制件', data: d.series['自制件'], borderColor: '#198754', backgroundColor: '#19875422', tension: .2, fill: true},
+            {label: '原材料', data: d.series['原材料'], borderColor: '#6c757d', backgroundColor: '#6c757d22', tension: .2, fill: true},
+        ]
+    },
+    options: {responsive: true, interaction: {mode: 'index', intersect: false},
+        scales: {y: {title: {display: true, text: '库存量'}}}}
+});
+</script>
+{% endblock %}

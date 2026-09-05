@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<h4><i class="fas fa-history text-primary"></i> 计划版本列表 <small class="text-muted">每次排产自动生成一个版本（run_id）</small></h4>
+<div class="card"><div class="card-body table-responsive p-0">
+    <table class="table table-sm table-hover mb-0" style="font-size:0.9rem">
+        <thead><tr class="table-light">
+            <th>版本</th><th>求解时间</th><th>状态</th><th>耗时</th><th>MIPGap</th><th>计划期</th>
+            <th class="text-end">销售收入</th><th class="text-end">利润总额</th><th class="text-end">延期罚金</th><th>操作</th>
+        </tr></thead>
+        <tbody>
+        {% for v in versions %}
+        <tr>
+            <td class="fw-bold">#{{ v.run_id }}</td>
+            <td>{{ v.run_time }}</td>
+            <td><span class="badge {{ 'bg-success' if v.status == 'OPTIMAL' else 'bg-secondary' }}">{{ v.status }}</span></td>
+            <td>{{ v.solve_time_s if v.solve_time_s is not none else '-' }}s</td>
+            <td>{{ v.mip_gap_pct if v.mip_gap_pct is not none else '-' }}%</td>
+            <td>{{ v.nperiod }}</td>
+            <td class="text-end">{{ '¥{:,.0f}'.format(v.sales_revenue) if v.sales_revenue is not none else '-' }}</td>
+            <td class="text-end">{{ '¥{:,.0f}'.format(v.profit) if v.profit is not none else '-' }}</td>
+            <td class="text-end {{ 'text-danger' if v.delay_penalty else 'text-muted' }}">{{ '¥{:,.0f}'.format(v.delay_penalty) if v.delay_penalty is not none else '-' }}</td>
+            <td><a class="btn btn-sm btn-outline-primary" href="/versions/compare?a={{ v.run_id }}&b={{ versions[0].run_id }}">与最新对比</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="10" class="text-center text-muted py-4">暂无排产版本</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div></div>
+<p class="text-muted small mt-2">提示：最新版本为 #{{ versions[0].run_id if versions else '-' }}；对比功能选择任意两个版本查看 KPI 差异。</p>
+{% endblock %}

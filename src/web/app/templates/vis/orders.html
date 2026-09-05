@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block content %}
+<h4><i class="fas fa-clipboard-check text-primary"></i> 订单交付看板 <small class="text-muted">交期 vs 实际交付（绿色=按期，红色=延期）</small></h4>
+{% if not data.has_result %}
+<div class="alert alert-info mt-3">暂无排产结果，请先运行排产。</div>
+{% else %}
+<div class="card">
+    <div class="card-header d-flex align-items-center">
+        <strong>订单 × 周期交付分布</strong>
+        <span class="ms-3 small">
+            <span class="badge bg-success">按期交付</span>
+            <span class="badge bg-danger">延期交付</span>
+            <span class="badge bg-warning text-dark">交期标记 ▼</span>
+        </span>
+    </div>
+    <div class="card-body table-responsive">
+        <table class="table table-bordered table-sm align-middle text-center" style="font-size:0.8rem">
+            <thead><tr>
+                <th>订单号</th><th>产品</th><th>等级</th><th>订单量</th><th>交期</th>
+                {% for t in data.periods %}<th style="width:48px">{{ t }}</th>{% endfor %}
+                <th>状态</th><th>收入</th><th>罚金</th>
+            </tr></thead>
+            <tbody>
+            {% for o in data.orders %}
+                <tr>
+                    <td class="fw-bold">{{ o.order_id }}</td>
+                    <td class="small">{{ o.material_code }}</td>
+                    <td><span class="badge bg-secondary">{{ o.priority_level }}</span></td>
+                    <td>{{ o.order_quantity | round(0) | int }}</td>
+                    <td class="fw-bold text-primary">第{{ o.due_period }}期</td>
+                    {% for c in o.cells %}
+                        {% if c.period == o.due_period %}
+                        <td class="position-relative {{ c.cls }}" style="background:{{ '' if c.cls else '#fff3cd' }}">
+                            {% if c.qty is not none %}{{ c.qty | round(0) | int }}{% else %}<span class="text-warning">▼</span>{% endif %}
+                            {% if c.qty is none %}<span class="position-absolute top-0 start-50 translate-middle text-warning small">▼</span>{% endif %}
+                        </td>
+                        {% else %}
+                        <td class="{{ c.cls }}">{{ c.qty | round(0) | int if c.qty is not none else '' }}</td>
+                        {% endif %}
+                    {% endfor %}
+                    <td><span class="badge bg-{{ o.color }}">{{ o.status }}</span></td>
+                    <td>¥{{ '{:,.0f}'.format(o.revenue) }}</td>
+                    <td class="{{ 'text-danger fw-bold' if o.penalty > 0 else 'text-muted' }}">¥{{ '{:,.0f}'.format(o.penalty) }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+<div class="alert alert-light border mt-3 small mb-0">
+    <i class="fas fa-info-circle"></i>
+    黄色 ▼ 标记列为订单交期；绿色单元格为交期内交付数量，红色为延期交付数量；
+    同一订单分多期交付时逐期显示。明细数据见「输出结果 → 订单销售交付」。
+</div>
+{% endif %}
+{% endblock %}

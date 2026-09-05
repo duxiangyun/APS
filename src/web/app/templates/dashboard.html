@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block content %}
+{% if not data.has_result %}
+<div class="alert alert-info mt-4">
+    <i class="fas fa-info-circle"></i> 暂无排产结果，请先运行排产算法（src/model/APS-SPlant-v2-sqlite.py）。
+</div>
+{% else %}
+
+{# ================= 批次信息横幅 ================= #}
+<div class="d-flex align-items-center mb-3 p-2 bg-light rounded border">
+    <h5 class="mb-0 me-3"><i class="fas fa-flag-checkered text-primary"></i> 求解批次 #{{ data.run.run_id }}</h5>
+    <span class="badge bg-success me-3 fs-6">{{ data.run.status }}</span>
+    <span class="text-muted me-3"><i class="far fa-clock"></i> {{ data.run.run_time }}</span>
+    <span class="text-muted me-3"><i class="fas fa-hourglass-half"></i> 耗时 {{ data.run.solve_time_s }}s</span>
+    {% if data.run.mip_gap_pct is not none %}
+    <span class="text-muted me-3"><i class="fas fa-percentage"></i> MIPGap {{ data.run.mip_gap_pct }}%</span>
+    {% endif %}
+    <span class="text-muted"><i class="fas fa-calendar-week"></i> 计划期数 {{ data.run.nperiod }}</span>
+    <a href="/res" class="btn btn-sm btn-outline-primary ms-auto">查看全部结果视图 <i class="fas fa-arrow-right"></i></a>
+</div>
+
+{# ================= KPI 卡片 ================= #}
+{% set k = data.kpis %}
+<div class="row">
+    <div class="col-md-2">
+        <div class="metric-card text-center border-start border-success border-4">
+            <div class="metric-label"><i class="fas fa-check-circle text-success"></i> 订单准交率</div>
+            <div class="metric-value" style="color:#198754">{{ k.display.ontime_rate_pct }}</div>
+            <div class="small text-muted">{{ k.order_ontime }}/{{ k.order_total }} 单按期</div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="metric-card text-center border-start border-primary border-4">
+            <div class="metric-label"><i class="fas fa-yen-sign text-primary"></i> 销售收入</div>
+            <div class="metric-value" style="font-size:1.5rem">¥{{ k.display.sales_revenue }}</div>
+            <div class="small text-muted">{{ k.order_total }} 张订单合计</div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="metric-card text-center border-start border-info border-4">
+            <div class="metric-label"><i class="fas fa-coins text-info"></i> 利润总额</div>
+            <div class="metric-value" style="color:#0dcaf0;font-size:1.5rem">¥{{ k.display.profit }}</div>
+            <div class="small text-muted">利润率 {{ k.display.profit_rate_pct }}</div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="metric-card text-center border-start border-warning border-4">
+            <div class="metric-label"><i class="fas fa-exclamation-triangle text-warning"></i> 延期罚金</div>
+            <div class="metric-value" style="color:{{ '#dc3545' if (k.delay_penalty or 0) > 0 else '#adb5bd' }};font-size:1.5rem">¥{{ k.display.delay_penalty }}</div>
+            <div class="small text-muted">{{ k.order_delayed }} 单延期 · {{ k.order_undelivered }} 单未交付</div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="metric-card text-center border-start border-secondary border-4">
+            <div class="metric-label"><i class="fas fa-tachometer-alt text-secondary"></i> 设备平均负荷率</div>
+            <div class="metric-value" style="color:#6c757d">{{ k.display.equip_avg_load_pct }}</div>
+            <div class="small text-muted">全部设备各期均值</div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="metric-card text-center border-start border-danger border-4">
+            <div class="metric-label"><i class="fas fa-fire text-danger"></i> 瓶颈设备峰值</div>
+            <div class="metric-value" style="color:#dc3545">{{ k.display.equip_max_load_pct }}</div>
+            <div class="small text-muted">{{ k.bottleneck_equip or '-' }}</div>
+        </div>
+    </div>
+</div>
+
+{# ================= 告警 + 负荷排行 ================= #}
+<div class="row">
+    <div class="col-lg-5">
+        <div class="card">
+            <div class="card-header d-flex align-items-center">
+                <i class="fas fa-bell me-2"></i><strong>异常告警</strong>
+                <span class="badge bg-{{ 'danger' if data.warnings | selectattr('level','equalto','danger') | list else 'secondary' }} ms-2">
+                    {{ data.warnings | length }}
+                </span>
+            </div>
+            <div class="card-body" style="max-height:380px;overflow-y:auto">
+                {% if not data.warnings %}
+                <div class="text-center text-success py-5">
+                    <i class="fas fa-shield-alt fa-3x mb-3"></i>
+                    <div>本次排产无异常：无不可行松弛、无延期/未交付订单、无高负荷设备</div>
+                </div>
+                {% else %}
+                <ul class="list-group list-group-flush">
+                    {% for w in data.warnings %}
+                    <li class="list-group-item px-0">
+                        <div class="d-flex">
+                            <span class="badge bg-{{ 'danger' if w.level=='danger' else ('warning' if w.level=='warning' else 'info') }} me-2 align-self-start"
+                                  style="min-width:52px">
+                                <i class="fas {{ w.icon }}"></i>
+                                {{ '严重' if w.level=='danger' else ('预警' if w.level=='warning' else '提示') }}
+                            </span>
+                            <div>
+                                <div class="fw-bold">{{ w.title }}</div>
+                                <div class="small text-muted">{{ w.detail }}</div>
+                                {% if w.link %}<a class="small" href="{{ w.link }}">查看明细 <i class="fas fa-angle-right"></i></a>{% endif %}
+                            </div>
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-7">
+        <div class="card">
+            <div class="card-header"><i class="fas fa-tachometer-alt me-2"></i><strong>设备负荷率排行</strong>
+                <span class="text-muted small ms-2">按峰值负荷率降序</span></div>
+            <div class="card-body" style="max-height:380px;overflow-y:auto">
+                {% for e in data.equip_load.equipments %}
+                <div class="d-flex align-items-center mb-2">
+                    <div class="text-end me-2" style="width:80px;font-size:0.85rem">{{ e.code }}</div>
+                    <div class="progress flex-grow-1" style="height:18px">
+                        {% set color = '#dc3545' if e.max_rate >= 100 else ('#fd7e14' if e.max_rate >= 90 else ('#ffc107' if e.max_rate >= 60 else '#20c997')) %}
+                        <div class="progress-bar" role="progressbar"
+                             style="width: {{ [e.max_rate, 100] | min }}%;background:{{ color }}"
+                             title="{{ e.code }} 峰值 {{ e.max_rate }}% / 平均 {{ e.avg_rate }}%">
+                        </div>
+                    </div>
+                    <div class="ms-2 small" style="width:96px">
+                        <span class="fw-bold" style="color:{{ color }}">{{ e.max_rate }}%</span>
+                        <span class="text-muted">/ 均 {{ e.avg_rate }}%</span>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ================= 设备负荷热力图 ================= #}
+<div class="card mt-3">
+    <div class="card-header d-flex align-items-center">
+        <i class="fas fa-th me-2"></i><strong>设备负荷热力图</strong>
+        <span class="text-muted small ms-2">各设备各周期负荷率（负荷 / 班次可用能力），点击表头可跳转明细</span>
+        <div class="ms-auto d-flex align-items-center small">
+            <span class="me-1">低</span>
+            <span style="display:inline-block;width:16px;height:16px;background:#e9ecef;border:1px solid #dee2e6"></span>
+            <span style="display:inline-block;width:16px;height:16px;background:hsl(120,60%,75%)"></span>
+            <span style="display:inline-block;width:16px;height:16px;background:hsl(60,75%,60%)"></span>
+            <span style="display:inline-block;width:16px;height:16px;background:hsl(25,90%,55%)"></span>
+            <span style="display:inline-block;width:16px;height:16px;background:hsl(0,80%,55%)"></span>
+            <span class="ms-1">高（≥100% 为满产/加班）</span>
+        </div>
+    </div>
+    <div class="card-body table-responsive">
+        <table class="table table-bordered table-sm mb-0" style="font-size:0.78rem">
+            <thead>
+                <tr class="text-center">
+                    <th class="text-start" style="min-width:90px">设备 \\ 周期</th>
+                    {% for t in data.equip_load.periods %}<th style="width:44px">{{ t }}</th>{% endfor %}
+                    <th style="width:60px">峰值</th>
+                    <th style="width:60px">平均</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for e in data.equip_load.equipments %}
+                <tr>
+                    <td class="text-start fw-bold"><a href="/res/equip_load">{{ e.code }}</a></td>
+                    {% for r in e.rates %}
+                    {% if r < 0.5 %}
+                    <td class="text-center" style="background:#e9ecef;color:transparent" title="{{ e.code }} 第{{ loop.index }}期：无负荷">0</td>
+                    {% else %}
+                    {% set hue = (120 - [r, 100] | min * 1.2) | round %}
+                    {% set light = (82 - r * 0.28) | round %}
+                    <td class="text-center" style="background:hsl({{ hue }},70%,{{ light }}%);color:{{ '#fff' if r >= 75 else '#212529' }}"
+                        title="{{ e.code }} 第{{ loop.index }}期：负荷 {{ e.loads[loop.index0] }} / 能力 {{ e.capacity }}（{{ r }}%）">
+                        {{ r | round(0) | int }}
+                    </td>
+                    {% endif %}
+                    {% endfor %}
+                    <td class="text-center fw-bold"
+                        style="color:{{ '#dc3545' if e.max_rate >= 100 else ('#fd7e14' if e.max_rate >= 90 else '#212529') }}">{{ e.max_rate }}%</td>
+                    <td class="text-center text-muted">{{ e.avg_rate }}%</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% endif %}
+{% endblock %}
