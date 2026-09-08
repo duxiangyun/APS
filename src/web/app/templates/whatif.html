@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+{% block content %}
+<h4><i class="fas fa-flask text-primary"></i> What-if 沙盒模拟
+    <small class="text-muted fs-6">场景命名 · 假设参数 · 沙盒求解 · 版本对比</small>
+</h4>
+
+<div class="alert alert-info py-2 small mb-3">
+    <i class="fas fa-info-circle"></i>
+    在沙盒中保存一套「假设参数」并运行：系统会临时覆盖全局参数完成一次沙盒求解（生成独立版本），
+    求解结束后<b>自动恢复正式参数</b>，不影响当前正式排产。沙盒结果可在「计划版本 → 方案对比」中与基线版本对比 11 项 KPI。
+    <span class="text-muted">求解运行期间参数配置页临时锁定。</span>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <span class="text-muted small">共 {{ scenarios|length }} 个场景</span>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#scModal" id="btnNew">
+        <i class="fas fa-plus"></i> 新建场景
+    </button>
+</div>
+
+{% if not scenarios %}
+<div class="text-center text-muted py-5 border rounded bg-light">
+    <i class="fas fa-flask fa-2x mb-2"></i>
+    <div>暂无模拟场景。点击「新建场景」设置一组假设参数（如：延期罚金权重 ×5、关闭外协…），运行后与基线对比。</div>
+</div>
+{% endif %}
+
+<div class="row g-3">
+{% for sc in scenarios %}
+    <div class="col-md-6 col-xl-4">
+        <div class="card h-100 {{ 'border-primary' if sc.status == 'running' else '' }}" data-sid="{{ sc.id }}">
+            <div class="card-header d-flex justify-content-between align-items-center py-2">
+                <span class="fw-bold text-truncate me-2" title="{{ sc.name }}">
+                    <i class="fas fa-flask text-muted"></i> {{ sc.name }}</span>
+                {% if sc.status == 'running' %}
+                <span class="badge bg-warning text-dark scenario-badge">运行中</span>
+                {% elif sc.status == 'done' %}
+                <span class="badge bg-success scenario-badge">已完成</span>
+                {% elif sc.status == 'failed' %}
+                <span class="badge bg-danger scenario-badge">失败</span>
+                {% else %}
+                <span class="badge bg-secondary scenario-badge">草稿</span>
+                {% endif %}
+            </div>
+            <div class="card-body py-2 small">
+                {% if sc.description %}<div class="text-muted mb-2">{{ sc.description }}</div>{% endif %}
+                <div class="mb-2">
+                    {% for k, v in (sc.overrides or {}).items() %}
+                    <span class="badge bg-light text-dark border me-1 mb-1" style="font-weight:normal">{{ k }} = {{ v }}</span>
+                    {% endfor %}
+                </div>
+                <div class="text-muted" style="font-size:.75rem">
+                    创建：{{ sc.created_at }}
+                    {% if sc.run_id %}
+                    · 沙盒版本 <a href="/versions/compare?a={{ sc.baseline_run_id or 0 }}&b={{ sc.run_id }}">#{{ sc.run_id }}</a>
+                      {% if sc.finished_at %}（{{ sc.finished_at }}）{% endif %}
+                    {% endif %}
+                </div>
+            </div>
+            <div class="card-footer py-2 d-flex gap-2">
+                <button class="btn btn-sm btn-primary btn-run" data-sid="{{ sc.id }}"
+                        {{ 'disabled' if sc.status == 'running' else '' }}>
+                    <i class="fas fa-play"></i> 运行
+                </button>
+                <button class="btn btn-sm btn-outline-secondary btn-edit" data-sid="{{ sc.id }}"
+                        data-name="{{ sc.name }}" data-desc="{{ sc.description or '' }}"
+                        data-overrides='{{ (sc.overrides or {})|tojson }}'
+                        {{ 'disabled' if sc.status == 'running' else '' }}>
+                    <i class="fas fa-pen"></i> 编辑
+                </button>
+                {% if sc.run_id %}
+                <a class="btn btn-sm btn-outline-info" href="/versions/compare?a={{ sc.baseline_run_id or 0 }}&b={{ sc.run_id }}">
+                    <i class="fas fa-balance-scale"></i> 对比基线
+                </a>
+                {% endif %}
+                <button class="btn btn-sm btn-outline-danger ms-auto btn-del" data-sid="{{ sc.id }}"
+                        {{ 'disabled' if sc.status == 'running' else '' }}>
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+            <div class="card-body border-top py-2 whatif-log" data-log-for="{{ sc.id }}" style="display:none;">
+                <pre class="bg-dark text-light p-2 rounded mb-0" style="max-height:200px;overflow:auto;font-size:.72rem;line-height:1.3;" data-log-content></pre>
+            </div>
+        </div>
+    </div>
+{% endfor %}
+</div>
+
+{# 场景编辑模态框 #}
+<div class="modal fade" id="scModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h5 class="modal-title" id="scModalTitle"><i class="fas fa-flask"></i> 新建场景</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-2 mb-3">
+          <div class="col-md-4">
+            <label class="form-label small fw-bold mb-1">场景名称 *</label>
+            <input type="text" class="form-control form-control-sm" id="scName" placeholder="如：交付优先（延期罚金×5）">
+          </div>
+          <div class="col-md-8">
+            <label class="form-label small fw-bold mb-1">说明</label>
+            <input type="text" class="form-control form-control-sm" id="scDesc" placeholder="假设的业务背景与预期（可选）">
+          </div>
+        </div>
+        <div class="alert alert-light border py-2 small mb-3">
+            仅填写需要<b>假设</b>的参数（留空 = 沿用当前正式值）。「当前值」为正式参数值，仅作参考。
+        </div>
+        {% for group in schema %}
+        <div class="card mb-2">
+            <div class="card-header py-1 small fw-bold"><i class="fas {{ group.icon }} me-1"></i> {{ group.label }}</div>
+            <div class="card-body py-2">
+                <div class="row g-2">
+                    {% for p in group['items'] %}
+                    <div class="col-md-4 col-lg-3">
+                        <label class="form-label small fw-bold mb-1" for="wif_{{ p.key }}">{{ p.key }}</label>
+                        {% if p.type == 'select' %}
+                        <select class="form-select form-select-sm" id="wif_{{ p.key }}" data-wif-key="{{ p.key }}" data-wif-cur="{{ p.value }}">
+                            <option value="">（不覆盖）</option>
+                            {% for opt in p.options %}
+                            <option value="{{ opt[0] }}">{{ opt[1] if opt|length > 1 else opt[0] }}</option>
+                            {% endfor %}
+                        </select>
+                        {% else %}
+                        <input type="number" step="any" class="form-control form-control-sm" id="wif_{{ p.key }}"
+                               data-wif-key="{{ p.key }}" data-wif-cur="{{ p.value }}" placeholder="当前值 {{ p.value }}">
+                        {% endif %}
+                        {% if p.description %}<div class="form-text mb-0" style="font-size:.7rem">{{ p.description }}</div>{% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="modal-footer py-2">
+        <span id="scMsg" class="me-auto small"></span>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">取消</button>
+        <button type="button" class="btn btn-sm btn-primary" id="btnSaveScenario">保存场景</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let editSid = null;      // null=新建
+let pollSid = null, timer = null;
+
+function collectOverrides() {
+    const payload = {};
+    document.querySelectorAll('[data-wif-key]').forEach(el => {
+        const v = (el.value || '').trim();
+        if (v !== '') payload[el.dataset.wifKey] = v;
+    });
+    return payload;
+}
+
+function openModal(mode, btn) {
+    editSid = null;
+    document.getElementById('scName').value = '';
+    document.getElementById('scDesc').value = '';
+    document.querySelectorAll('[data-wif-key]').forEach(el => {
+        if (el.tagName === 'SELECT') {
+            el.value = '';
+        } else {
+            el.value = '';
+        }
+    });
+    document.getElementById('scModalTitle').innerHTML = '<i class="fas fa-flask"></i> 新建场景';
+    if (mode === 'edit' && btn) {
+        editSid = btn.dataset.sid;
+        document.getElementById('scName').value = btn.dataset.name || '';
+        document.getElementById('scDesc').value = btn.dataset.desc || '';
+        let ov = {};
+        try { ov = JSON.parse(btn.dataset.overrides || '{}'); } catch (e) {}
+        document.querySelectorAll('[data-wif-key]').forEach(el => {
+            const k = el.dataset.wifKey;
+            if (ov[k] !== undefined && ov[k] !== null) el.value = ov[k];
+            else if (el.tagName === 'SELECT') el.value = '';
+        });
+        document.getElementById('scModalTitle').innerHTML = '<i class="fas fa-pen"></i> 编辑场景 #' + editSid;
+    }
+    new bootstrap.Modal(document.getElementById('scModal')).show();
+}
+
+document.getElementById('btnNew').addEventListener('click', () => openModal('new'));
+document.querySelectorAll('.btn-edit').forEach(b => b.addEventListener('click', () => openModal('edit', b)));
+
+document.getElementById('btnSaveScenario').addEventListener('click', async () => {
+    const body = {
+        name: document.getElementById('scName').value,
+        description: document.getElementById('scDesc').value,
+        overrides: collectOverrides()
+    };
+    const url = editSid ? '/api/whatif/scenarios/' + editSid : '/api/whatif/scenarios';
+    const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify(body)}).then(x => x.json());
+    const el = document.getElementById('scMsg');
+    if (r.ok) {
+        el.innerHTML = '<i class="fas fa-check-circle text-success"></i> 已保存';
+        setTimeout(() => location.reload(), 500);
+    } else {
+        el.innerHTML = '<i class="fas fa-times-circle text-danger"></i> ' + (r.message || '保存失败');
+    }
+});
+
+document.querySelectorAll('.btn-del').forEach(b => b.addEventListener('click', async () => {
+    if (!confirm('确认删除该场景？')) return;
+    const r = await fetch('/api/whatif/scenarios/' + b.dataset.sid, {method: 'DELETE'}).then(x => x.json());
+    if (r.ok) location.reload(); else alert(r.message || '删除失败');
+}));
+
+document.querySelectorAll('.btn-run').forEach(b => b.addEventListener('click', async () => {
+    if (!confirm('运行沙盒求解？系统将临时应用该场景的假设参数，求解结束后自动恢复。')) return;
+    const sid = b.dataset.sid;
+    const r = await fetch('/api/whatif/scenarios/' + sid + '/run', {method: 'POST'}).then(x => x.json());
+    if (!r.started) { alert(r.message || '启动失败'); return; }
+    startPolling(sid);
+}));
+
+function startPolling(sid) {
+    pollSid = sid;
+    const card = document.querySelector('[data-sid="' + sid + '"]');
+    if (card) {
+        const badge = card.querySelector('.scenario-badge');
+        if (badge) { badge.textContent = '运行中'; badge.className = 'badge bg-warning text-dark scenario-badge'; }
+        const logBox = card.querySelector('.whatif-log');
+        if (logBox) logBox.style.display = 'block';
+        card.querySelectorAll('.btn-run,.btn-edit,.btn-del').forEach(x => x.disabled = true);
+    }
+    if (!timer) timer = setInterval(poll, 1500);
+    poll();
+}
+
+async function poll() {
+    if (!pollSid) return;
+    const r = await fetch('/api/whatif/scenarios/' + pollSid + '/status').then(x => x.json());
+    const card = document.querySelector('[data-sid="' + pollSid + '"]');
+    if (r.log_tail && card) {
+        const pre = card.querySelector('[data-log-content]');
+        pre.textContent = r.log_tail;
+        pre.scrollTop = pre.scrollHeight;
+    }
+    if (!r.running) {
+        clearInterval(timer); timer = null; pollSid = null;
+        const st = r.scenario ? r.scenario.status : 'failed';
+        const rid = r.scenario ? r.scenario.run_id : null;
+        if (st === 'done' && rid) {
+            location.reload();
+        } else {
+            if (card) {
+                const badge = card.querySelector('.scenario-badge');
+                if (badge) { badge.textContent = '失败'; badge.className = 'badge bg-danger scenario-badge'; }
+            }
+            alert('沙盒求解失败，请查看日志 data/output/whatif/whatif_' + sid + '.log');
+        }
+    }
+}
+
+// 页面加载时若有运行中的场景，自动恢复轮询
+{% for sc in scenarios %}{% if sc.status == 'running' %}
+startPolling('{{ sc.id }}');
+{% endif %}{% endfor %}
+</script>
+{% endblock %}

@@ -21,6 +21,13 @@
     </div>
 </div>
 
+{% if editable_config %}
+<div class="alert alert-warning py-2 small mb-3">
+    <i class="fas fa-pen"></i> 本表支持在线编辑（修改/新增/删除），保存后对排产算法立即生效；
+    重跑 ETL（Excel 导入）会覆盖手工修改的数据。
+</div>
+{% endif %}
+
 <h2 class="mb-3">数据列表</h2>
 <div class="d-flex gap-2 align-items-center flex-wrap mb-3">
     <input type="text" id="searchInput" class="form-control form-control-sm" style="width: 250px;"
@@ -32,6 +39,9 @@
         <option value="100" {% if page_size == 100 %}selected{% endif %}>每页100条</option>
     </select>
     <span id="tableInfo" class="text-muted small">共 {{ total }} 条，第 {{ page }}/{{ total_pages }} 页</span>
+    {% if editable_config and editable_config.insert %}
+    <button id="btnCreate" class="btn btn-sm btn-outline-primary"><i class="fas fa-plus"></i> 新增记录</button>
+    {% endif %}
     <button id="exportBtn" class="btn btn-sm btn-outline-success ms-auto"><i class="fas fa-download"></i> 导出CSV</button>
 </div>
 
@@ -44,12 +54,13 @@
                     {{ col.zh }} <span id="sort-icon-{{ col.en }}"></span>
                 </th>
                 {% endfor %}
+                {% if editable_config %}<th style="width: 110px;">操作</th>{% endif %}
             </tr>
         </thead>
         <tbody id="tableBody">
             {% if total == 0 %}
             <tr>
-                <td colspan="{{ columns|length }}" class="text-center text-muted py-5">
+                <td colspan="{{ columns|length + (1 if editable_config else 0) }}" class="text-center text-muted py-5">
                     <i class="fas fa-inbox fa-2x mb-2 d-block"></i>暂无数据
                 </td>
             </tr>
@@ -59,6 +70,16 @@
                 {% for col in columns %}
                 <td>{{ row[col.en] if row[col.en] is not none else '' }}</td>
                 {% endfor %}
+                {% if editable_config %}
+                {% set pk_map = {} %}
+                {% for k in editable_config.pk %}{% set _ = pk_map.update({k: row[k]}) %}{% endfor %}
+                <td class="text-nowrap">
+                    <button class="btn btn-sm btn-outline-primary py-0 px-1" title="编辑"
+                            onclick='openEditByPk({{ pk_map | tojson }})'><i class="fas fa-pen"></i></button>
+                    <button class="btn btn-sm btn-outline-danger py-0 px-1 ms-1" title="删除"
+                            onclick='askDeletePk({{ pk_map | tojson }})'><i class="fas fa-trash"></i></button>
+                </td>
+                {% endif %}
             </tr>
             {% endfor %}
             {% endif %}
@@ -66,6 +87,28 @@
     </table>
 </div>
 <div id="pagination" class="d-flex justify-content-center align-items-center mt-3"></div>
+
+{% if editable_config %}
+<!-- 编辑/新增模态框 -->
+<div class="modal fade" id="editModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h5 class="modal-title" id="editModalTitle">编辑记录</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="editForm" class="row g-3"></div>
+      </div>
+      <div class="modal-footer py-2">
+        <span id="editMsg" class="me-auto small"></span>
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button>
+        <button type="button" class="btn btn-primary btn-sm" id="btnSaveRow">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
@@ -81,6 +124,9 @@ let currentSortOrder = {{ sort_order | tojson }};
 
 const INITIAL_TOTAL = {{ total }};
 const INITIAL_TOTAL_PAGES = {{ total_pages }};
+const EDITABLE = {{ editable_config | tojson if editable_config else 'null' }};
+const TABLE_NAME = '{{ table_name }}';
+let lastRows = [];
 
 function buildQuery(page) {
     const params = new URLSearchParams();
@@ -133,15 +179,23 @@ function renderPagination(totalPages, page) {
 }
 
 function renderTable(data) {
+    lastRows = data.rows;
     const tbody = document.getElementById('tableBody');
     let html = '';
     if (data.rows.length === 0) {
-        html = `<tr><td colspan="${COLUMNS.length}" class="text-center text-muted py-5"><i class="fas fa-inbox fa-2x mb-2 d-block"></i>暂无数据</td></tr>`;
+        html = `<tr><td colspan="${COLUMNS.length + (EDITABLE ? 1 : 0)}" class="text-center text-muted py-5"><i class="fas fa-inbox fa-2x mb-2 d-block"></i>暂无数据</td></tr>`;
     } else {
-        for (const row of data.rows) {
+        for (let i = 0; i < data.rows.length; i++) {
+            const row = data.rows[i];
             html += '<tr>';
             for (const col of COLUMNS) {
                 html += `<td>${row[col.en] !== null && row[col.en] !== undefined ? row[col.en] : ''}</td>`;
+            }
+            if (EDITABLE) {
+                html += `<td class="text-nowrap">
+                    <button class="btn btn-sm btn-outline-primary py-0 px-1" onclick="openEdit(${i})" title="编辑"><i class="fas fa-pen"></i></button>
+                    <button class="btn btn-sm btn-outline-danger py-0 px-1 ms-1" onclick="askDelete(${i})" title="删除"><i class="fas fa-trash"></i></button>
+                </td>`;
             }
             html += '</tr>';
         }
@@ -217,5 +271,99 @@ document.getElementById('exportBtn').addEventListener('click', function() {
 
 updateSortIcons();
 renderPagination(INITIAL_TOTAL_PAGES, currentPage);
+
+{% if editable_config %}
+// ---------------- 在线编辑（EDITABLE 白名单表） ----------------
+const editModalEl = document.getElementById('editModal');
+let editMode = 'update';   // update | create
+let editPk = null;
+let bsModal = null;
+
+function pkOf(row) {
+    const o = {};
+    EDITABLE.pk.forEach(k => o[k] = row[k]);
+    return o;
+}
+function fieldInput(col, val) {
+    const v = (val === null || val === undefined) ? '' : val;
+    const req = col.required ? ' <span class="text-danger">*</span>' : '';
+    let ctl;
+    if (col.type === 'select') {
+        ctl = `<select class="form-select form-select-sm" data-fname="${col.name}">` +
+            (col.required ? '' : '<option value=""></option>') +
+            col.options.map(o => `<option value="${o[0]}" ${String(o[0]) === String(v) ? 'selected' : ''}>${o[0]}（${o[1]}）</option>`).join('') +
+            '</select>';
+    } else {
+        ctl = `<input type="${col.type === 'number' || col.type === 'int' ? 'number' : 'text'}" step="any"
+                 class="form-control form-control-sm" data-fname="${col.name}" value="${v}">`;
+    }
+    return `<div class="col-md-4 col-lg-3"><label class="form-label small fw-bold mb-1">${col.zh}${req}</label>${ctl}</div>`;
+}
+function openModal(mode, row) {
+    editMode = mode;
+    editPk = mode === 'update' ? pkOf(row) : null;
+    document.getElementById('editModalTitle').textContent =
+        mode === 'update' ? `编辑记录 - ${EDITABLE.label}` : `新增记录 - ${EDITABLE.label}`;
+    let html = '';
+    for (const col of EDITABLE.columns) {
+        if (mode === 'create' && col.auto) continue;   // 自增列不填
+        if (mode === 'update' && EDITABLE.pk.includes(col.name)) {
+            const v = row[col.name];
+            html += `<div class="col-md-4 col-lg-3"><label class="form-label small fw-bold mb-1">${col.zh}（主键，不可改）</label>
+                     <input type="text" class="form-control form-control-sm" value="${v ?? ''}" disabled></div>`;
+        } else {
+            html += fieldInput(col, mode === 'update' ? row[col.name] : '');
+        }
+    }
+    document.getElementById('editForm').innerHTML = html;
+    document.getElementById('editMsg').innerHTML = '';
+    bsModal = bsModal || new bootstrap.Modal(editModalEl);
+    bsModal.show();
+}
+async function openEditByPk(pk) {
+    // 先取原始行（未做枚举显示转换），避免把中文显示值回填进输入框
+    const pkJson = encodeURIComponent(JSON.stringify(pk));
+    const raw = await fetch(`/api/edit/${TABLE_NAME}/row?pk=${pkJson}`).then(x => x.json());
+    openModal('update', raw);
+}
+function openEdit(i) { openEditByPk(pkOf(lastRows[i])); }
+function collectFields() {
+    const fields = {};
+    document.querySelectorAll('#editForm [data-fname]').forEach(el => {
+        const v = el.value.trim();
+        fields[el.dataset.fname] = v === '' ? null : v;
+    });
+    return fields;
+}
+if (document.getElementById('btnSaveRow')) {
+    document.getElementById('btnSaveRow').addEventListener('click', async () => {
+        const url = editMode === 'update' ? `/api/edit/${TABLE_NAME}/update` : `/api/edit/${TABLE_NAME}/create`;
+        const body = editMode === 'update' ? {pk: editPk, fields: collectFields()} : collectFields();
+        const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify(body)}).then(x => x.json());
+        const el = document.getElementById('editMsg');
+        el.innerHTML = r.ok
+            ? '<i class="fas fa-check-circle text-success"></i> ' + r.message
+            : '<i class="fas fa-times-circle text-danger"></i> ' + r.message;
+        if (r.ok) { setTimeout(() => { bsModal.hide(); fetchData(); }, 600); }
+    });
+}
+if (document.getElementById('btnCreate')) {
+    document.getElementById('btnCreate').addEventListener('click', () => openModal('create', {}));
+}
+async function deleteByPk(pk) {
+    const r = await fetch(`/api/edit/${TABLE_NAME}/delete`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({pk: pk})
+    }).then(x => x.json());
+    alert(r.message || (r.ok ? '已删除' : '删除失败'));
+    if (r.ok) fetchData();
+}
+function askDelete(i) { deleteByPk(pkOf(lastRows[i])); }
+async function askDeletePk(pk) {
+    if (!confirm('确认删除该记录？删除后立即对排产生效，且不可恢复。')) return;
+    deleteByPk(pk);
+}
+{% endif %}
 </script>
 {% endblock %}

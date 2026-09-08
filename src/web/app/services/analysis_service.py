@@ -922,20 +922,38 @@ def get_validation_report(conn: sqlite3.Connection) -> list[dict]:
 # ---------------------------------------------------------------------------
 # 计划优化：排产触发（子进程，不直接写库）
 # ---------------------------------------------------------------------------
-def start_solve() -> dict:
-    """启动排算子进程（单实例）"""
+def start_solve(env_extra: dict | None = None, log_name: str = "solve_web.log",
+                on_finish=None) -> dict:
+    """启动排算子进程（单实例）。
+
+    What-if 沙盒复用：log_name 区分日志文件，on_finish 为进程退出回调（后台线程执行）。
+    """
     global _solve_proc
     with _solve_lock:
         if _solve_proc is not None and _solve_proc.poll() is None:
             return {"started": False, "message": "已有排产任务正在运行", "pid": _solve_proc.pid}
-        log_path = _PROJECT_ROOT / "data" / "output" / "solve_web.log"
+        log_path = _PROJECT_ROOT / "data" / "output" / log_name
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_f = open(log_path, "w", encoding="utf-8")
         _solve_proc = subprocess.Popen(
             [sys.executable, str(_MODEL_SCRIPT)],
             cwd=str(_PROJECT_ROOT), stdout=log_f, stderr=subprocess.STDOUT,
         )
+        if on_finish is not None:
+            def _watch():
+                proc = _solve_proc
+                proc.wait()
+                try:
+                    on_finish(proc.returncode)
+                except Exception:
+                    pass
+            threading.Thread(target=_watch, daemon=True).start()
         return {"started": True, "pid": _solve_proc.pid, "message": "排产任务已启动"}
+
+
+def is_solve_running() -> bool:
+    """当前是否有排产子进程在运行（含 What-if 沙盒求解）"""
+    return _solve_proc is not None and _solve_proc.poll() is None
 
 
 def solve_status(conn: sqlite3.Connection) -> dict:
@@ -945,11 +963,128 @@ def solve_status(conn: sqlite3.Connection) -> dict:
     run = None
     if rid:
         r = conn.execute(
-            "SELECT run_id, run_time, status, objective, solve_time_ms FROM res_solve_run WHERE run_id = ?",
+            "SELECT run_id, run_time, status, objective, solve_time_ms, mip_gap FROM res_solve_run WHERE run_id = ?",
             (rid,)).fetchone()
         run = {"run_id": r["run_id"], "run_time": r["run_time"], "status": r["status"],
-               "objective": round(r["objective"], 0) if r["objective"] else None}
+               "objective": round(r["objective"], 0) if r["objective"] else None,
+               "solve_time_s": round(r["solve_time_ms"] / 1000, 1) if r["solve_time_ms"] else None,
+               "mip_gap_pct": round(r["mip_gap"] * 100, 2) if r["mip_gap"] else None}
+
+    # 读取日志尾部（运行中或刚结束时）
+    log_tail = ""
+    log_progress = None
+    log_path = _PROJECT_ROOT / "data" / "output" / "solve_web.log"
+    if log_path.exists():
+        try:
+            lines = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+            log_tail = "\n".join(lines[-30:])
+            # 解析 Gurobi 进度行（Iteration / Gap / Objective / Time）
+            for line in reversed(lines):
+                line = line.strip()
+                if line.startswith("Iteration") or "Optimal objective" in line or "Solved in" in line:
+                    log_progress = _parse_gurobi_progress(lines, line)
+                    break
+        except Exception:
+            pass
+
     return {"running": running,
             "pid": _solve_proc.pid if _solve_proc is not None else None,
             "returncode": _solve_proc.poll() if _solve_proc is not None else None,
-            "latest_run": run}
+            "latest_run": run,
+            "log_tail": log_tail,
+            "log_progress": log_progress}
+
+
+def _parse_gurobi_progress(lines: list[str], current_line: str) -> dict:
+    """从 Gurobi 日志行中提取求解进度信息"""
+    import re
+    parts = current_line.split()
+    info = {}
+    # "Iteration  Objective  Primal Inf.  Dual Inf.  Time" 格式
+    # 例: "2902  1.5048091e+07  0.000000e+00  0.000000e+00  0s"
+    if "Iteration" not in current_line and len(parts) >= 5:
+        try:
+            info["iteration"] = int(parts[0])
+            info["objective"] = parts[1]
+            info["time_s"] = parts[-1].rstrip("s")
+        except (ValueError, IndexError):
+            pass
+    elif "Optimal objective" in current_line:
+        m = re.search(r"Optimal objective\s+(\S+)", current_line)
+        if m:
+            info["objective"] = m.group(1)
+            info["status"] = "optimal"
+    elif "Solved in" in current_line:
+        m = re.search(r"Solved in (\d+) iterations and ([\d.]+) seconds", current_line)
+        if m:
+            info["iteration"] = m.group(1)
+            info["time_s"] = m.group(2)
+            info["status"] = "solved"
+    # 尝试提取 Gap（MILP 情形）
+    for line in reversed(lines):
+        gap_match = re.search(r"(\d+)%\s*gap", line, re.IGNORECASE)
+        if gap_match:
+            info["gap_pct"] = gap_match.group(1)
+            break
+    return info or None
+
+
+# ---------------------------------------------------------------------------
+# 求解参数配置（存 core_biz_global_params，key 前缀 SOLVE_，算法启动时读取）
+# ---------------------------------------------------------------------------
+_SOLVE_PARAMS_META = {
+    "SOLVE_MODE": {
+        "label": "求解模式", "type": "select",
+        "options": [["auto", "auto（按数据自动：LP，存在整批替代规则时转 MILP）"],
+                    ["milp", "milp（强制整数规划）"]],
+    },
+    "SOLVE_MIPGAP": {"label": "MIPGap（收敛精度）", "type": "number", "step": "0.0001", "min": "0"},
+    "SOLVE_TIME_LIMIT": {"label": "求解时间限制（秒）", "type": "number", "step": "10", "min": "0"},
+}
+
+
+def get_solve_params(conn: sqlite3.Connection) -> list:
+    rows = conn.execute(
+        "SELECT param_key, param_value, description FROM core_biz_global_params "
+        "WHERE param_key LIKE 'SOLVE_%' ORDER BY param_key").fetchall()
+    items = []
+    for r in rows:
+        meta = _SOLVE_PARAMS_META.get(r["param_key"], {})
+        items.append({"key": r["param_key"], "value": r["param_value"],
+                      "description": r["description"],
+                      "label": meta.get("label", r["param_key"]),
+                      "type": meta.get("type", "text"), "options": meta.get("options", []),
+                      "step": meta.get("step"), "min": meta.get("min")})
+    return items
+
+
+def update_solve_params(payload: dict) -> dict:
+    """校验并更新求解参数（仅 UPDATE 现有行，不改结构）"""
+    allowed = {k: str(v).strip() for k, v in payload.items() if k in _SOLVE_PARAMS_META}
+    if not allowed:
+        return {"updated": 0, "message": "无有效参数"}
+    if "SOLVE_MODE" in allowed and allowed["SOLVE_MODE"] not in ("auto", "milp"):
+        return {"updated": 0, "message": "求解模式仅支持 auto / milp"}
+    if "SOLVE_MIPGAP" in allowed:
+        try:
+            v = float(allowed["SOLVE_MIPGAP"])
+            assert 0 <= v <= 1
+        except (ValueError, AssertionError):
+            return {"updated": 0, "message": "MIPGap 需为 0~1 之间的数值"}
+        allowed["SOLVE_MIPGAP"] = v
+    if "SOLVE_TIME_LIMIT" in allowed:
+        try:
+            v = float(allowed["SOLVE_TIME_LIMIT"])
+            assert v >= 0
+        except (ValueError, AssertionError):
+            return {"updated": 0, "message": "时间限制需为不小于 0 的数值（0=不限制）"}
+        allowed["SOLVE_TIME_LIMIT"] = v
+    db_path = _PROJECT_ROOT / "data" / "db" / "aps_or.db"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executemany("UPDATE core_biz_global_params SET param_value = ? WHERE param_key = ?",
+                         [(str(v), k) for k, v in allowed.items()])
+        conn.commit()
+        return {"updated": len(allowed), "message": "已保存，下次排产生效"}
+    finally:
+        conn.close()

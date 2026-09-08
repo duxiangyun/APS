@@ -36,6 +36,14 @@ def run_etl():
     conn = get_conn()
     cursor = conn.cursor()
 
+    # 清表前快照非 Excel 来源的系统参数（求解参数/目标权重），
+    # 重跑 ETL 后按快照恢复，避免用户在线修改的值丢失
+    cursor.execute("SELECT param_key, param_value, description FROM core_biz_global_params")
+    _system_param_keys = {'SOLVE_MODE', 'SOLVE_MIPGAP', 'SOLVE_TIME_LIMIT',
+                          'W_SALES', 'W_DELAY', 'W_PURCHASE', 'W_PROCESS', 'W_INVENTORY'}
+    system_param_snapshot = {r['param_key']: (r['param_value'], r['description'])
+                             for r in cursor.fetchall() if r['param_key'] in _system_param_keys}
+
     try:
         # ============================================================
         # 第一部分：清空 core_ 层所有表（全量覆盖刷新）
@@ -356,6 +364,30 @@ def run_etl():
                 param_count += 1
         
         print(f"    插入 {param_count} 条记录")
+
+        # 2.1.1 非 Excel 来源的系统参数（求解参数/目标权重）：
+        #       步骤 0 清表会将其删除，此处按清表前快照恢复；
+        #       快照中不存在的（首次运行）用 INSERT OR IGNORE 补默认值
+        system_params = [
+            ('SOLVE_MODE', 'auto', '求解模式: auto=按数据自动选择(LP,存在整批替代规则时自动转MILP), milp=强制整数规划'),
+            ('SOLVE_MIPGAP', '0.0001', 'MILP求解精度(相对Gap收敛标准)'),
+            ('SOLVE_TIME_LIMIT', '0.0', '求解时间限制(秒,0=不限制)'),
+            ('W_SALES', '1.0', '目标权重：销售收入'),
+            ('W_DELAY', '1.0', '目标权重：延迟交付罚金'),
+            ('W_PURCHASE', '1.0', '目标权重：采购成本（原材料+外协）'),
+            ('W_PROCESS', '1.0', '目标权重：加工成本（工艺+模具，含加班）'),
+            ('W_INVENTORY', '1.0', '目标权重：库存成本（产品/自制件/原材料）'),
+        ]
+        restored = 0
+        for db_key, default_value, desc in system_params:
+            value, desc_final = system_param_snapshot.get(db_key, (default_value, desc))
+            cursor.execute(
+                "INSERT OR REPLACE INTO core_biz_global_params (param_key, param_value, description) VALUES (?, ?, ?)",
+                (db_key, value, desc_final)
+            )
+            if db_key in system_param_snapshot:
+                restored += 1
+        print(f"    恢复系统参数 {restored}/{len(system_params)} 条（其余为默认值）")
 
         # 2.2 BOM 定义
         print("  → 2.2 BOM 定义 (core_biz_bom)...")

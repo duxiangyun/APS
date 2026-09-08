@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block content %}
+<h4><i class="fas fa-sliders-h text-primary"></i> 排产参数配置
+    <small class="text-muted fs-6">core_biz_global_params · 保存后下次排产生效</small>
+</h4>
+
+<div class="alert alert-warning py-2 small mb-3">
+    <i class="fas fa-exclamation-triangle"></i>
+    参数修改直接写入 core 层并对排产算法生效；重跑 ETL（Excel 导入）会把非求解类参数恢复为 Excel 综合表数值。
+    计划期长度当前结果视图按 12 期展示，调整后需同步修改视图 PIVOT 列。
+</div>
+
+{% for group in groups %}
+<div class="card mb-3">
+    <div class="card-header"><i class="fas {{ group.icon }} me-1"></i> {{ group.label }}
+        <span class="badge bg-light text-dark ms-1">{{ group['items']|length }} 项</span></div>
+    <div class="card-body py-2">
+        <div class="row g-3">
+            {% for p in group['items'] %}
+            <div class="col-md-4 col-lg-3">
+                <label class="form-label small fw-bold mb-1" for="gp_{{ p.key }}">{{ p.key }}</label>
+                {% if p.type == 'select' %}
+                <select class="form-select form-select-sm" id="gp_{{ p.key }}" data-param-key="{{ p.key }}">
+                    {% for opt in p.options %}
+                    <option value="{{ opt[0] }}" {% if p.value == opt[0]|string %}selected{% endif %}>{{ opt[1] if opt|length > 1 else opt[0] }}</option>
+                    {% endfor %}
+                </select>
+                {% else %}
+                <input type="number" step="any" class="form-control form-control-sm" id="gp_{{ p.key }}"
+                       data-param-key="{{ p.key }}" value="{{ p.value }}">
+                {% endif %}
+                {% if p.description %}<div class="form-text mb-0" style="font-size:.75rem">{{ p.description }}</div>{% endif %}
+                {% if p.hint %}<div class="text-warning-emphasis" style="font-size:.7rem">{{ p.hint }}</div>{% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endfor %}
+
+<div class="d-flex align-items-center">
+    <button id="btnSaveParams" class="btn btn-primary"><i class="fas fa-save"></i> 保存全部参数</button>
+    <span id="paramMsg" class="ms-3 small"></span>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+const btnSave = document.getElementById('btnSaveParams');
+btnSave.addEventListener('click', async () => {
+    const payload = {};
+    document.querySelectorAll('[data-param-key]').forEach(el => payload[el.dataset.paramKey] = el.value);
+    const r = await fetch('/api/params', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload)
+    }).then(x => x.json());
+    const el = document.getElementById('paramMsg');
+    el.innerHTML = r.updated
+        ? '<i class="fas fa-check-circle text-success"></i> ' + r.message
+        : '<i class="fas fa-times-circle text-danger"></i> ' + r.message;
+    setTimeout(() => el.innerHTML = '', 5000);
+});
+</script>
+{% endblock %}

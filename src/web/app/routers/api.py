@@ -392,3 +392,86 @@ async def res_export_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{filename}"},
     )
+
+
+# ---------------- 主数据在线编辑（P0 1-9）与排产参数（12/44） ----------------
+from fastapi import Request
+from app.services.edit_service import (
+    EDITABLE_TABLES, get_row_raw, update_row, create_row, delete_row,
+    get_global_params, update_global_params,
+)
+
+edit_router = APIRouter(prefix="/api/edit", tags=["edit-api"])
+params_router = APIRouter(prefix="/api/params", tags=["params-api"])
+
+
+def _edit_guard(table_name: str) -> dict:
+    meta = EDITABLE_TABLES.get(table_name)
+    if not meta:
+        raise HTTPException(status_code=404, detail=f"表 '{table_name}' 不可编辑")
+    return meta
+
+
+async def _edit_body(request: Request) -> dict:
+    body = await request.json()
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="请求体需为 JSON 对象")
+    return body
+
+
+def _safe(fn, *args):
+    """将字段校验的 ValueError 转为统一错误响应"""
+    try:
+        return fn(*args)
+    except ValueError as e:
+        return {"ok": False, "message": str(e)}
+
+
+@edit_router.get("/{table_name}/row")
+async def edit_get_row(table_name: str, pk: str, conn: sqlite3.Connection = Depends(get_db_conn)):
+    """取原始行（未经枚举显示转换），pk 为 JSON 编码的主键键值对"""
+    _edit_guard(table_name)
+    import json as _json
+    try:
+        pk_values = _json.loads(pk)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="pk 参数需为 JSON 对象")
+    row = get_row_raw(conn, table_name, pk_values)
+    if row is None:
+        raise HTTPException(status_code=404, detail="记录不存在")
+    return row
+
+
+@edit_router.post("/{table_name}/update")
+async def edit_update(table_name: str, request: Request,
+                      conn: sqlite3.Connection = Depends(get_db_conn)):
+    _edit_guard(table_name)
+    body = await _edit_body(request)
+    return _safe(update_row, conn, table_name, body.get("pk") or {}, body.get("fields") or {})
+
+
+@edit_router.post("/{table_name}/create")
+async def edit_create(table_name: str, request: Request,
+                      conn: sqlite3.Connection = Depends(get_db_conn)):
+    _edit_guard(table_name)
+    body = await _edit_body(request)
+    return _safe(create_row, conn, table_name, body or {})
+
+
+@edit_router.post("/{table_name}/delete")
+async def edit_delete(table_name: str, request: Request,
+                      conn: sqlite3.Connection = Depends(get_db_conn)):
+    _edit_guard(table_name)
+    body = await _edit_body(request)
+    return _safe(delete_row, conn, table_name, body.get("pk") or {})
+
+
+@params_router.get("")
+async def params_data(conn: sqlite3.Connection = Depends(get_db_conn)):
+    return get_global_params(conn)
+
+
+@params_router.post("")
+async def params_update(request: Request):
+    body = await _edit_body(request)
+    return _safe(update_global_params, body)

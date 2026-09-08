@@ -22,46 +22,60 @@
 {# ================= KPI 卡片 ================= #}
 {% set k = data.kpis %}
 <div class="row">
-    <div class="col-md-2">
+    <div class="col-md-3">
         <div class="metric-card text-center border-start border-success border-4">
             <div class="metric-label"><i class="fas fa-check-circle text-success"></i> 订单准交率</div>
             <div class="metric-value" style="color:#198754">{{ k.display.ontime_rate_pct }}</div>
             <div class="small text-muted">{{ k.order_ontime }}/{{ k.order_total }} 单按期</div>
         </div>
     </div>
-    <div class="col-md-2">
+    <div class="col-md-3">
         <div class="metric-card text-center border-start border-primary border-4">
             <div class="metric-label"><i class="fas fa-yen-sign text-primary"></i> 销售收入</div>
             <div class="metric-value" style="font-size:1.5rem">¥{{ k.display.sales_revenue }}</div>
             <div class="small text-muted">{{ k.order_total }} 张订单合计</div>
         </div>
     </div>
-    <div class="col-md-2">
+    <div class="col-md-3">
         <div class="metric-card text-center border-start border-info border-4">
             <div class="metric-label"><i class="fas fa-coins text-info"></i> 利润总额</div>
             <div class="metric-value" style="color:#0dcaf0;font-size:1.5rem">¥{{ k.display.profit }}</div>
             <div class="small text-muted">利润率 {{ k.display.profit_rate_pct }}</div>
         </div>
     </div>
-    <div class="col-md-2">
+    <div class="col-md-3">
         <div class="metric-card text-center border-start border-warning border-4">
             <div class="metric-label"><i class="fas fa-exclamation-triangle text-warning"></i> 延期罚金</div>
             <div class="metric-value" style="color:{{ '#dc3545' if (k.delay_penalty or 0) > 0 else '#adb5bd' }};font-size:1.5rem">¥{{ k.display.delay_penalty }}</div>
             <div class="small text-muted">{{ k.order_delayed }} 单延期 · {{ k.order_undelivered }} 单未交付</div>
         </div>
     </div>
-    <div class="col-md-2">
+    <div class="col-md-3">
         <div class="metric-card text-center border-start border-secondary border-4">
             <div class="metric-label"><i class="fas fa-tachometer-alt text-secondary"></i> 设备平均负荷率</div>
             <div class="metric-value" style="color:#6c757d">{{ k.display.equip_avg_load_pct }}</div>
             <div class="small text-muted">全部设备各期均值</div>
         </div>
     </div>
-    <div class="col-md-2">
+    <div class="col-md-3">
         <div class="metric-card text-center border-start border-danger border-4">
             <div class="metric-label"><i class="fas fa-fire text-danger"></i> 瓶颈设备峰值</div>
             <div class="metric-value" style="color:#dc3545">{{ k.display.equip_max_load_pct }}</div>
             <div class="small text-muted">{{ k.bottleneck_equip or '-' }}</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="metric-card text-center border-start border-warning border-4">
+            <div class="metric-label"><i class="fas fa-clock text-warning"></i> 平均延期期数</div>
+            <div class="metric-value" style="color:{{ '#dc3545' if (k.avg_delay_periods or 0) > 0 else '#198754' }}">{{ k.display.avg_delay_periods }}</div>
+            <div class="small text-muted">{{ k.order_delayed }} 单延期订单均值</div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="metric-card text-center border-start border-info border-4">
+            <div class="metric-label"><i class="fas fa-sync-alt text-info"></i> 库存周转率</div>
+            <div class="metric-value" style="color:#0dcaf0">{{ k.display.inventory_turnover }}</div>
+            <div class="small text-muted">销售成本 / 平均库存价值</div>
         </div>
     </div>
 </div>

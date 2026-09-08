@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from app.services.table_service import (
 )
 from app.services.meta_service import get_display_columns, apply_enum_display
 from app.services.dashboard_service import get_dashboard
+from app.services.edit_service import get_editable_config, get_global_params
 from app.constants import COLUMN_DISPLAY_ORDER, SIDEBAR_MENU
 
 router = APIRouter(tags=["pages"])
@@ -100,6 +102,7 @@ async def table_detail(
         "sidebar_menu": SIDEBAR_MENU,
         "api_base": "/api/base-data",
         "back_url": "/",
+        "editable_config": get_editable_config(table_name),
     })
 
 
@@ -224,6 +227,18 @@ async def biz_table_detail(
         "sidebar_menu": SIDEBAR_MENU,
         "api_base": "/api/biz",
         "back_url": "/biz",
+        "editable_config": get_editable_config(table_name),
+    })
+
+
+@router.get("/params", response_class=HTMLResponse)
+async def params_page(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
+    """12/44 排产参数在线配置（core_biz_global_params 分组编辑）"""
+    return templates.TemplateResponse("params.html", {
+        "request": request,
+        "groups": get_global_params(conn),
+        "active_page": "params",
+        "sidebar_menu": SIDEBAR_MENU,
     })
 
 

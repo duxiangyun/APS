@@ -19,6 +19,11 @@ from app.services.analysis_service import (
     get_validation_report, start_solve, solve_status,
     get_material_requirements, get_order_kitting, get_psi_board,
     get_supply_board, get_shadow_heat,
+    get_solve_params, update_solve_params,
+)
+from app.services.whatif_service import (
+    list_scenarios, create_scenario, update_scenario, delete_scenario,
+    run_scenario, scenario_status, get_override_schema,
 )
 from app.constants import SIDEBAR_MENU
 
@@ -159,12 +164,63 @@ async def admin_validation(request: Request, conn: sqlite3.Connection = Depends(
 @router.get("/solve", response_class=HTMLResponse)
 async def solve_page(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
     return templates.TemplateResponse("solve.html",
-                                      _ctx(request, "solve", status=solve_status(conn)))
+                                      _ctx(request, "solve", status=solve_status(conn),
+                                           params=get_solve_params(conn)))
+
+
+# ---------------- 计划优化：What-if 沙盒模拟 ----------------
+
+@router.get("/whatif", response_class=HTMLResponse)
+async def whatif_page(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
+    return templates.TemplateResponse(
+        "whatif.html",
+        _ctx(request, "whatif", scenarios=list_scenarios(),
+             schema=get_override_schema(conn)))
+
+
+@router.get("/api/whatif/scenarios")
+async def api_whatif_list():
+    return list_scenarios()
+
+
+@router.post("/api/whatif/scenarios")
+async def api_whatif_create(request: Request):
+    body = await request.json()
+    return create_scenario(body.get("name"), body.get("description"),
+                           body.get("overrides") or {})
+
+
+@router.post("/api/whatif/scenarios/{sid}")
+async def api_whatif_update(sid: str, request: Request):
+    body = await request.json()
+    return update_scenario(sid, body.get("name"), body.get("description"),
+                           body.get("overrides") or {})
+
+
+@router.delete("/api/whatif/scenarios/{sid}")
+async def api_whatif_delete(sid: str):
+    return delete_scenario(sid)
+
+
+@router.post("/api/whatif/scenarios/{sid}/run")
+async def api_whatif_run(sid: str):
+    return run_scenario(sid)
+
+
+@router.get("/api/whatif/scenarios/{sid}/status")
+async def api_whatif_status(sid: str):
+    return scenario_status(sid)
 
 
 @router.post("/api/solve/start")
 async def api_solve_start():
     return JSONResponse(start_solve())
+
+
+@router.post("/api/solve/params")
+async def api_solve_params(request: Request):
+    payload = await request.json()
+    return JSONResponse(update_solve_params(payload))
 
 
 @router.get("/api/solve/status")

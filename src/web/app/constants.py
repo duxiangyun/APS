@@ -977,6 +977,8 @@ SIDEBAR_MENU = [
         "enabled": True,
         "children": [
             {"key": "solve", "label": "排产触发", "url": "/solve", "icon": "fa-rocket"},
+            {"key": "params", "label": "排产参数配置", "url": "/params", "icon": "fa-sliders-h"},
+            {"key": "whatif", "label": "What-if 沙盒", "url": "/whatif", "icon": "fa-flask"},
         ],
     },
     {

@@ -64,6 +64,7 @@ def get_kpis(conn: sqlite3.Connection) -> dict:
         "delay_penalty": None, "infeasible_cost": None,
         "equip_avg_load_pct": None, "equip_max_load_pct": None, "bottleneck_equip": None,
         "ontime_rate_pct": None, "qty_ontime_rate_pct": None,
+        "avg_delay_periods": None, "inventory_turnover": None,
     }
 
     # 订单交付分级汇总（res_view_order_delivery）
@@ -112,6 +113,39 @@ def get_kpis(conn: sqlite3.Connection) -> dict:
         kpi["equip_max_load_pct"] = round(top["max_load_rate_pct"], 1)
         kpi["bottleneck_equip"] = top["resource_code"]
 
+    # 平均延期天数（期数口径：延期订单的 平均(实际交付期 - 交期)）
+    delay_row = conn.execute(
+        """SELECT AVG(delivery_period - due_period) avg_delay
+           FROM res_view_order_sale
+           WHERE delivery_period > due_period"""
+    ).fetchone()
+    if delay_row and delay_row["avg_delay"] is not None:
+        kpi["avg_delay_periods"] = round(delay_row["avg_delay"], 1)
+
+    # 库存周转率 = 销售成本 / 平均库存价值
+    # 销售成本 ≈ 制造成本 + 采购成本
+    # 平均库存价值 = SUM(三类库存 quantity_total × 对应物料成本)
+    try:
+        s2 = conn.execute(
+            "SELECT manufacturing_cost, purchase_cost FROM res_view_summary LIMIT 1"
+        ).fetchone()
+        cogs = (s2["manufacturing_cost"] or 0) + (s2["purchase_cost"] or 0) if s2 else 0
+        inv_value = 0.0
+        for view, cost_table, cost_col in [
+            ("res_view_prod_inv", "core_md_product_ext", "standard_cost"),
+            ("res_view_self_inv", "core_md_semi_ext", "outsource_price"),
+            ("res_view_raw_inv", "core_md_raw_ext", "purchase_cost"),
+        ]:
+            r = conn.execute(
+                f"SELECT COALESCE(SUM(inv.quantity_total * COALESCE(ext.{cost_col}, 0)), 0) v "
+                f"FROM {view} inv LEFT JOIN {cost_table} ext ON inv.material_code = ext.material_code"
+            ).fetchone()
+            inv_value += r["v"] or 0.0
+        if cogs > 0 and inv_value > 0:
+            kpi["inventory_turnover"] = round(cogs / inv_value, 2)
+    except Exception:
+        pass
+
     # 展示格式化
     kpi["display"] = {
         "sales_revenue": _fmt_money(kpi["sales_revenue"]),
@@ -122,6 +156,8 @@ def get_kpis(conn: sqlite3.Connection) -> dict:
         "qty_ontime_rate_pct": _fmt_pct(kpi["qty_ontime_rate_pct"]),
         "equip_avg_load_pct": _fmt_pct(kpi["equip_avg_load_pct"]),
         "equip_max_load_pct": _fmt_pct(kpi["equip_max_load_pct"]),
+        "avg_delay_periods": f"{kpi['avg_delay_periods']} 期" if kpi["avg_delay_periods"] is not None else "-",
+        "inventory_turnover": f"{kpi['inventory_turnover']}" if kpi["inventory_turnover"] is not None else "-",
     }
     return kpi
 

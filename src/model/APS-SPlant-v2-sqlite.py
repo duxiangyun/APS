@@ -210,6 +210,51 @@ nfixture  = readCellDB('nfixture', True)                             # 工装种
 ndemrate  = readCellDB('ndemrate', False)                             # 需求率（从DB读取，转为float）
 intager = 0                                                                # 整数规划表示：0 - 线性规划，1-整数规划
 
+## 求解参数（从 core_biz_global_params 读取，Web「排产触发」页可在线配置）
+def readSolveParams():
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        rows = conn.execute(
+            "SELECT param_key, param_value FROM core_biz_global_params WHERE param_key LIKE 'SOLVE_%'"
+        ).fetchall()
+        return {k: v for k, v in rows}
+    finally:
+        conn.close()
+
+_solveParams = readSolveParams()
+_solveMode  = (_solveParams.get('SOLVE_MODE') or 'auto').strip().lower()    # auto=按数据自动选择, milp=强制整数规划
+_mipgap     = float(_solveParams.get('SOLVE_MIPGAP') or 0.0001)             # MILP 收敛精度
+_timelimit  = float(_solveParams.get('SOLVE_TIME_LIMIT') or 0)              # 求解时间限制（秒），0=不限制
+if _solveMode == 'milp':
+    intager = 1
+print('求解参数: MODE=%s MIPGAP=%s TIME_LIMIT=%s' % (_solveMode, _mipgap, _timelimit))
+
+## 目标权重（从 core_biz_global_params 读取，Web「/params」页可在线配置；缺省 1.0）
+def readWeightParams():
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        rows = conn.execute(
+            "SELECT param_key, param_value FROM core_biz_global_params"
+        ).fetchall()
+        return {k: v for k, v in rows if k and k.startswith('W_')}
+    finally:
+        conn.close()
+
+_weightParams = readWeightParams()
+def _weight(key):
+    try:
+        return float(_weightParams.get(key) or 1.0)
+    except (TypeError, ValueError):
+        return 1.0
+
+W_SALES      = _weight('W_SALES')      # 销售收入权重
+W_DELAY      = _weight('W_DELAY')      # 延迟交付罚金权重
+W_PURCHASE   = _weight('W_PURCHASE')   # 采购成本权重（原材料+外协）
+W_PROCESS    = _weight('W_PROCESS')    # 加工成本权重（工艺+模具，含加班）
+W_INVENTORY  = _weight('W_INVENTORY')  # 库存成本权重（产品/自制件/原材料）
+print('目标权重: 销售收入=%s 延期罚金=%s 采购=%s 加工=%s 库存=%s' % (
+    W_SALES, W_DELAY, W_PURCHASE, W_PROCESS, W_INVENTORY))
+
 
 # 设置索引列表
 T        = list(range(1, nperiod + 1))
@@ -845,15 +890,15 @@ RawInf    = msingle.addVars(Raw, T, name = 'RawInf')                            
 ## ==============================================================================================
 
 msingle.setObjective(
-    quicksum(OrdPrice[i]*OrdSale[i,t] for i in Order for t in range(OrdTime[i],OrdTime[i]+OrdDly[i]+1) if t<=nperiod)               # 销售收入
-    - quicksum(OrdFine[i]*OrdDelay[i,t] for i in Order for t in range(OrdTime[i],OrdTime[i]+OrdDly[i]+1) if t<=nperiod)             # 延迟交付成本
-    - quicksum(RawCost[i]*Purchase[i,t] for i in Raw for t in T)                                                                    # 原材料采购成本
-    - quicksum(OutsCost[i]*OutSourc[i,t] for i in OutsNo for t in T)                                                                # 外协件采购成本
-    - quicksum((EquipCost[p]*Workload[p,t] + EquipCost[p]*EquipOverR[p]*Overload[p,t]) for p in Equip for t in T)                   # 工艺加工成本
-    - quicksum((FixtCost[p]*Fixtload[p,t] + FixtCost[p]*Fovcost[p]*FixtPlus[p,t]) for p in Fixture for t in T if nfixtable == 1)    # 模具使用成本
-    - quicksum(ProdInvCost[i]*ProdInv[i,t] for i in Product for t in T0)                                                            # 产品库存成本
-    - quicksum(SelfInvCost[i]*SelfInv[i,t] for i in Self for t in T0)                                                               # 自制件库存成本
-    - quicksum(RawInvCost[i]*RawInv[i,t] for i in Raw  for t in T0)                                                                 # 原材料库存成本
+    W_SALES*quicksum(OrdPrice[i]*OrdSale[i,t] for i in Order for t in range(OrdTime[i],OrdTime[i]+OrdDly[i]+1) if t<=nperiod)               # 销售收入（权重 W_SALES）
+    - W_DELAY*quicksum(OrdFine[i]*OrdDelay[i,t] for i in Order for t in range(OrdTime[i],OrdTime[i]+OrdDly[i]+1) if t<=nperiod)             # 延迟交付成本（权重 W_DELAY）
+    - W_PURCHASE*quicksum(RawCost[i]*Purchase[i,t] for i in Raw for t in T)                                                                    # 原材料采购成本（权重 W_PURCHASE）
+    - W_PURCHASE*quicksum(OutsCost[i]*OutSourc[i,t] for i in OutsNo for t in T)                                                                # 外协件采购成本（权重 W_PURCHASE）
+    - W_PROCESS*quicksum((EquipCost[p]*Workload[p,t] + EquipCost[p]*EquipOverR[p]*Overload[p,t]) for p in Equip for t in T)                   # 工艺加工成本（权重 W_PROCESS）
+    - W_PROCESS*quicksum((FixtCost[p]*Fixtload[p,t] + FixtCost[p]*Fovcost[p]*FixtPlus[p,t]) for p in Fixture for t in T if nfixtable == 1)    # 模具使用成本（权重 W_PROCESS）
+    - W_INVENTORY*quicksum(ProdInvCost[i]*ProdInv[i,t] for i in Product for t in T0)                                                            # 产品库存成本（权重 W_INVENTORY）
+    - W_INVENTORY*quicksum(SelfInvCost[i]*SelfInv[i,t] for i in Self for t in T0)                                                               # 自制件库存成本（权重 W_INVENTORY）
+    - W_INVENTORY*quicksum(RawInvCost[i]*RawInv[i,t] for i in Raw  for t in T0)                                                                 # 原材料库存成本（权重 W_INVENTORY）
     - quicksum(penalty*ProdInf[i,t] for i in Product for t in T)                                                                    # 不可行罚成本，分别是产品、自制品、原材料、工艺能力
     - quicksum(penalty*SaleInf[i,t] for i in Order for t in T)
     - quicksum(penalty*SelfInf[i,t] for i in Self for t in T) 
@@ -1128,9 +1173,10 @@ print('\n生成界平衡约束:  ', runtime)
 print()
 
 if intager == 1:
-    msingle.setParam(GRB.Param.MIPGap, 0.0001)                               ## 求解精度限制（收敛标准）
-#msingle.setParam(GRB.Paramsingle.TimeLimit, 100)                               ## 求解时间限制
-#msingle.setParam(GRB.Param.Method,2)                                            ## 参数设置： -1 自动， 0 primal， 1 对偶， 2 内点法，3 并行 
+    msingle.setParam(GRB.Param.MIPGap, _mipgap)                              ## 求解精度限制（收敛标准，DB: SOLVE_MIPGAP）
+if _timelimit > 0:
+    msingle.setParam(GRB.Param.TimeLimit, _timelimit)                        ## 求解时间限制（秒，DB: SOLVE_TIME_LIMIT）
+#msingle.setParam(GRB.Param.Method,2)                                            ## 参数设置： -1 自动， 0 primal， 1 对偶， 2 内点法，3 并行
 
 # 调用存储的基
 #filename2 = 'D:/My_Model/APS-New/single/FM/msingle-2.bas'

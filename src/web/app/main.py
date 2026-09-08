@@ -21,6 +21,8 @@ app.include_router(api.biz_router)
 app.include_router(api.alg_router)
 app.include_router(api.res_router)
 app.include_router(api.dash_router)
+app.include_router(api.edit_router)
+app.include_router(api.params_router)
 app.include_router(analysis.router)
 
 
