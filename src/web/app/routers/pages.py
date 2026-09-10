@@ -37,7 +37,7 @@ templates.env.cache = None
 async def dashboard(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
     data = get_dashboard(conn)
     return templates.TemplateResponse(
-        "dashboard.html",
+        request, "dashboard.html",
         {
             "request": request,
             "data": data,
@@ -60,7 +60,7 @@ async def overview(request: Request, conn: sqlite3.Connection = Depends(get_db_c
     total = sum(t["count"] for t in tables)
     non_empty = sum(1 for t in tables if t["count"] > 0)
     return templates.TemplateResponse(
-        "base_data/overview.html",
+        request, "base_data/overview.html",
         {
             "request": request,
             "tables": tables,
@@ -98,7 +98,7 @@ async def table_detail(
     )
     rows = apply_enum_display(rows, table_name)
 
-    return templates.TemplateResponse("base_data/table_detail.html", {
+    return templates.TemplateResponse(request, "base_data/table_detail.html", {
         "request": request,
         "table_key": table_key,
         "table_name": table_name,
@@ -125,7 +125,7 @@ async def stg_overview(request: Request, conn: sqlite3.Connection = Depends(get_
     tables = get_all_stg_table_counts(conn)
     total = sum(t["count"] for t in tables)
     non_empty = sum(1 for t in tables if t["count"] > 0)
-    return templates.TemplateResponse("base_data/overview.html", {
+    return templates.TemplateResponse(request, "base_data/overview.html", {
         "request": request,
         "tables": tables,
         "total": total,
@@ -161,7 +161,7 @@ async def stg_table_detail(
     )
     rows = apply_enum_display(rows, table_name)
 
-    return templates.TemplateResponse("base_data/table_detail.html", {
+    return templates.TemplateResponse(request, "base_data/table_detail.html", {
         "request": request,
         "table_key": table_key,
         "table_name": table_name,
@@ -187,7 +187,7 @@ async def biz_overview(request: Request, conn: sqlite3.Connection = Depends(get_
     tables = get_all_biz_table_counts(conn)
     total = sum(t["count"] for t in tables)
     non_empty = sum(1 for t in tables if t["count"] > 0)
-    return templates.TemplateResponse("base_data/overview.html", {
+    return templates.TemplateResponse(request, "base_data/overview.html", {
         "request": request,
         "tables": tables,
         "total": total,
@@ -223,7 +223,7 @@ async def biz_table_detail(
     )
     rows = apply_enum_display(rows, table_name)
 
-    return templates.TemplateResponse("base_data/table_detail.html", {
+    return templates.TemplateResponse(request, "base_data/table_detail.html", {
         "request": request,
         "table_key": table_key,
         "table_name": table_name,
@@ -248,7 +248,7 @@ async def biz_table_detail(
 @router.get("/params", response_class=HTMLResponse)
 async def params_page(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
     """12/44 排产参数在线配置（core_biz_global_params 分组编辑）"""
-    return templates.TemplateResponse("params.html", {
+    return templates.TemplateResponse(request, "params.html", {
         "request": request,
         "groups": get_global_params(conn),
         "active_page": "params",
@@ -261,7 +261,7 @@ async def alg_overview(request: Request, conn: sqlite3.Connection = Depends(get_
     tables = get_all_alg_table_counts(conn)
     total = sum(t["count"] for t in tables)
     non_empty = sum(1 for t in tables if t["count"] > 0)
-    return templates.TemplateResponse("base_data/overview.html", {
+    return templates.TemplateResponse(request, "base_data/overview.html", {
         "request": request,
         "tables": tables,
         "total": total,
@@ -297,7 +297,7 @@ async def alg_table_detail(
     )
     rows = apply_enum_display(rows, table_name)
 
-    return templates.TemplateResponse("base_data/table_detail.html", {
+    return templates.TemplateResponse(request, "base_data/table_detail.html", {
         "request": request,
         "table_key": table_key,
         "table_name": table_name,
@@ -323,7 +323,7 @@ async def res_overview(request: Request, conn: sqlite3.Connection = Depends(get_
     tables = get_all_result_view_counts(conn)
     total = sum(t["count"] for t in tables)
     non_empty = sum(1 for t in tables if t["count"] > 0)
-    return templates.TemplateResponse("base_data/overview.html", {
+    return templates.TemplateResponse(request, "base_data/overview.html", {
         "request": request,
         "tables": tables,
         "total": total,
@@ -359,7 +359,7 @@ async def res_view_detail(
     )
     rows = apply_enum_display(rows, view_name)
 
-    return templates.TemplateResponse("base_data/table_detail.html", {
+    return templates.TemplateResponse(request, "base_data/table_detail.html", {
         "request": request,
         "table_key": view_key,
         "table_name": view_name,

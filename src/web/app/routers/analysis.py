@@ -41,25 +41,25 @@ def _ctx(request: Request, active: str, **kw):
 
 @router.get("/vis/gantt", response_class=HTMLResponse)
 async def vis_gantt(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
-    return templates.TemplateResponse("vis/gantt.html",
+    return templates.TemplateResponse(request, "vis/gantt.html",
                                       _ctx(request, "vis_gantt", data=get_gantt_data(conn)))
 
 
 @router.get("/vis/orders", response_class=HTMLResponse)
 async def vis_orders(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
-    return templates.TemplateResponse("vis/orders.html",
+    return templates.TemplateResponse(request, "vis/orders.html",
                                       _ctx(request, "vis_orders", data=get_order_delivery_board(conn)))
 
 
 @router.get("/vis/materials", response_class=HTMLResponse)
 async def vis_materials(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
-    return templates.TemplateResponse("vis/materials.html",
+    return templates.TemplateResponse(request, "vis/materials.html",
                                       _ctx(request, "vis_materials", data=get_material_requirements(conn)))
 
 
 @router.get("/vis/kitting", response_class=HTMLResponse)
 async def vis_kitting(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
-    return templates.TemplateResponse("vis/kitting.html",
+    return templates.TemplateResponse(request, "vis/kitting.html",
                                       _ctx(request, "vis_kitting", data=get_order_kitting(conn)))
 
 
@@ -67,7 +67,7 @@ async def vis_kitting(request: Request, conn: sqlite3.Connection = Depends(get_d
 async def vis_psi(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
     data = get_psi_board(conn)
     return templates.TemplateResponse(
-        "vis/psi.html",
+        request, "vis/psi.html",
         _ctx(request, "vis_psi", data=data, chart_json=json.dumps(data, ensure_ascii=False)))
 
 
@@ -75,7 +75,7 @@ async def vis_psi(request: Request, conn: sqlite3.Connection = Depends(get_db_co
 async def vis_supply(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
     data = get_supply_board(conn)
     return templates.TemplateResponse(
-        "vis/supply.html",
+        request, "vis/supply.html",
         _ctx(request, "vis_supply", data=data, chart_json=json.dumps(data, ensure_ascii=False)))
 
 
@@ -83,7 +83,7 @@ async def vis_supply(request: Request, conn: sqlite3.Connection = Depends(get_db
 async def vis_shadow(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
     data = get_shadow_heat(conn)
     return templates.TemplateResponse(
-        "vis/shadow.html",
+        request, "vis/shadow.html",
         _ctx(request, "vis_shadow", data=data, chart_json=json.dumps(data, ensure_ascii=False)))
 
 
@@ -91,13 +91,13 @@ async def vis_shadow(request: Request, conn: sqlite3.Connection = Depends(get_db
 
 @router.get("/analysis/delay", response_class=HTMLResponse)
 async def analysis_delay(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
-    return templates.TemplateResponse("analysis/delay.html",
+    return templates.TemplateResponse(request, "analysis/delay.html",
                                       _ctx(request, "analysis_delay", data=get_delay_analysis(conn)))
 
 
 @router.get("/analysis/bottleneck", response_class=HTMLResponse)
 async def analysis_bottleneck(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
-    return templates.TemplateResponse("analysis/bottleneck.html",
+    return templates.TemplateResponse(request, "analysis/bottleneck.html",
                                       _ctx(request, "analysis_bottleneck", data=get_bottleneck_analysis(conn)))
 
 
@@ -105,7 +105,7 @@ async def analysis_bottleneck(request: Request, conn: sqlite3.Connection = Depen
 async def analysis_inventory(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
     data = get_inventory_analysis(conn)
     return templates.TemplateResponse(
-        "analysis/inventory.html",
+        request, "analysis/inventory.html",
         _ctx(request, "analysis_inventory", data=data, chart_json=json.dumps(data, ensure_ascii=False)))
 
 
@@ -113,7 +113,7 @@ async def analysis_inventory(request: Request, conn: sqlite3.Connection = Depend
 async def analysis_cost(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
     data = get_cost_analysis(conn)
     return templates.TemplateResponse(
-        "analysis/cost.html",
+        request, "analysis/cost.html",
         _ctx(request, "analysis_cost", data=data, chart_json=json.dumps(data, ensure_ascii=False)))
 
 
@@ -121,7 +121,7 @@ async def analysis_cost(request: Request, conn: sqlite3.Connection = Depends(get
 async def analysis_outsource(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
     data = get_outsource_analysis(conn)
     return templates.TemplateResponse(
-        "analysis/outsource.html",
+        request, "analysis/outsource.html",
         _ctx(request, "analysis_outsource", data=data, chart_json=json.dumps(data, ensure_ascii=False)))
 
 
@@ -129,7 +129,7 @@ async def analysis_outsource(request: Request, conn: sqlite3.Connection = Depend
 
 @router.get("/versions", response_class=HTMLResponse)
 async def versions(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
-    return templates.TemplateResponse("versions/list.html",
+    return templates.TemplateResponse(request, "versions/list.html",
                                       _ctx(request, "versions", versions=get_versions(conn)))
 
 
@@ -148,7 +148,7 @@ async def versions_compare(
         raise HTTPException(404, "指定的版本不存在")
     data = get_version_compare(conn, a, b)
     return templates.TemplateResponse(
-        "versions/compare.html",
+        request, "versions/compare.html",
         _ctx(request, "versions", data=data, versions=versions_all, a=a, b=b))
 
 
@@ -156,7 +156,7 @@ async def versions_compare(
 
 @router.get("/admin/validation", response_class=HTMLResponse)
 async def admin_validation(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
-    return templates.TemplateResponse("admin/validation.html",
+    return templates.TemplateResponse(request, "admin/validation.html",
                                       _ctx(request, "admin_validation", checks=get_validation_report(conn)))
 
 
@@ -164,7 +164,7 @@ async def admin_validation(request: Request, conn: sqlite3.Connection = Depends(
 
 @router.get("/solve", response_class=HTMLResponse)
 async def solve_page(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
-    return templates.TemplateResponse("solve.html",
+    return templates.TemplateResponse(request, "solve.html",
                                       _ctx(request, "solve", status=solve_status(conn),
                                            params=get_solve_params(conn)))
 
@@ -174,7 +174,7 @@ async def solve_page(request: Request, conn: sqlite3.Connection = Depends(get_db
 @router.get("/whatif", response_class=HTMLResponse)
 async def whatif_page(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
     return templates.TemplateResponse(
-        "whatif.html",
+        request, "whatif.html",
         _ctx(request, "whatif", scenarios=list_scenarios(),
              schema=get_override_schema(conn)))
 
