@@ -1033,6 +1033,10 @@ def _parse_gurobi_progress(lines: list[str], current_line: str) -> dict:
 # 求解参数配置（存 core_biz_global_params，key 前缀 SOLVE_，算法启动时读取）
 # ---------------------------------------------------------------------------
 _SOLVE_PARAMS_META = {
+    "SOLVE_SOLVER": {
+        "label": "求解器", "type": "select",
+        "options": [["gurobi", "gurobi（商业，默认）"], ["highs", "highs（开源，需安装 highspy）"]],
+    },
     "SOLVE_MODE": {
         "label": "求解模式", "type": "select",
         "options": [["auto", "auto（按数据自动：LP，存在整批替代规则时转 MILP）"],
@@ -1063,6 +1067,8 @@ def update_solve_params(payload: dict) -> dict:
     allowed = {k: str(v).strip() for k, v in payload.items() if k in _SOLVE_PARAMS_META}
     if not allowed:
         return {"updated": 0, "message": "无有效参数"}
+    if "SOLVE_SOLVER" in allowed and allowed["SOLVE_SOLVER"] not in ("gurobi", "highs"):
+        return {"updated": 0, "message": "求解器仅支持 gurobi / highs"}
     if "SOLVE_MODE" in allowed and allowed["SOLVE_MODE"] not in ("auto", "milp"):
         return {"updated": 0, "message": "求解模式仅支持 auto / milp"}
     if "SOLVE_MIPGAP" in allowed:

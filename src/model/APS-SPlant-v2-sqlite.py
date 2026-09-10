@@ -34,11 +34,147 @@
 import xlrd
 import time
 from xlwt import *
-from gurobipy import *
 from collections import namedtuple,defaultdict
 import sqlite3    #支持从sqlite中读取数据
 import os
 from datetime import datetime  #求解结果写入DB时记录run_time
+
+# 从DB读取算法输入数据的配置
+_PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DB_PATH = os.path.join(_PROJECT_DIR, 'data', 'db', 'aps_or.db')
+
+# =============================================================================
+#  Solver selection: 通过 core_biz_global_params.SOLVE_SOLVER 控制
+#  可选值: gurobi（默认）、highs
+# =============================================================================
+try:
+    import highspy
+    _HAS_HIGS = True
+except Exception:
+    _HAS_HIGS = False
+
+def _select_solver():
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        row = conn.execute(
+            "SELECT param_value FROM core_biz_global_params WHERE param_key='SOLVE_SOLVER'"
+        ).fetchone()
+        return (row[0] or 'gurobi').strip().lower()
+    finally:
+        conn.close()
+
+_solver_name = _select_solver()
+print('求解器选择: %s' % _solver_name)
+
+if _solver_name == 'highs' and _HAS_HIGS:
+    from highspy import Highs, ObjSense, HighsVarType, HighsModelStatus, kHighsInf
+    from highspy.highs import highs_var, highs_cons, highs_linear_expression
+
+    # ---- 兼容补丁：为 highspy 对象补充 Gurobi 风格接口 ----
+    # 表达式/变量除法: expr / c 等价于 expr * (1/c)
+    def _hi_truediv(self, other):
+        return self.__mul__(1.0 / float(other))
+    highs_linear_expression.__truediv__ = _hi_truediv
+    highs_var.__truediv__ = _hi_truediv
+    # 变量解值 .x
+    def _hi_var_x(self):
+        return self.highs.allVariableValues()[self.index]
+    highs_var.x = property(_hi_var_x)
+    # 变量上界 .ub / .setub()
+    def _hi_var_getub(self):
+        return self.highs.getLp().col_upper_[self.index]
+    def _hi_var_setub(self, v):
+        _lb = self.highs.getLp().col_lower_[self.index]
+        self.highs.changeColBounds(self.index, _lb, float(v))
+    highs_var.ub = property(_hi_var_getub, _hi_var_setub)
+    highs_var.setub = _hi_var_setub
+    # 约束对偶价 .Pi
+    def _hi_con_pi(self):
+        return self.highs.allConstrDuals()[self.index]
+    highs_cons.Pi = property(_hi_con_pi)
+
+    _S_BINARY   = HighsVarType.kInteger      # 标记整数变量（二进制通过 ub=1 实现）
+    _S_MAXIMIZE = ObjSense.kMaximize
+
+    def quicksum(gen):
+        """兼容 Gurobi quicksum：对变量/表达式/数值求和"""
+        result = None
+        for term in gen:
+            result = term if result is None else result + term
+        return result if result is not None else 0
+
+    # HiGHS 求解状态 -> Gurobi Status 整数码（结果输出时按 status_names 映射）
+    _HIGHS_STATUS_MAP = {
+        HighsModelStatus.kOptimal: 2,
+        HighsModelStatus.kInfeasible: 3,
+        HighsModelStatus.kUnboundedOrInfeasible: 4,
+        HighsModelStatus.kUnbounded: 5,
+        HighsModelStatus.kIterationLimit: 7,
+        HighsModelStatus.kTimeLimit: 9,
+        HighsModelStatus.kSolutionLimit: 10,
+        HighsModelStatus.kInterrupt: 11,
+        HighsModelStatus.kUnknown: 14,
+    }
+
+    class _HiModel:
+        """HiGHS 模型包装，兼容 Gurobi Model 常用接口"""
+        def __init__(self, name):
+            self._h = Highs()
+            self.Status = None
+            self.ObjVal = None
+            self.MIPGap = None
+        def addVar(self, lb=0.0, ub=kHighsInf, vtype=None, name=''):
+            if vtype is not None:
+                # 二进制变量: lb=0, ub=1, 整数型
+                return self._h.addVariable(0.0, 1.0, 0.0,
+                                           HighsVarType.kInteger, name=name or None)
+            return self._h.addVariable(float(lb), float(ub), 0.0,
+                                       HighsVarType.kContinuous, name=name or None)
+        def addVars(self, dim1, dim2, lb=0.0, ub=kHighsInf, name=''):
+            return {(i, j): self._h.addVariable(float(lb), float(ub), 0.0,
+                                                HighsVarType.kContinuous,
+                                                name='%s[%s,%s]' % (name, i, j))
+                    for i in dim1 for j in dim2}
+        def addConstr(self, expr, sense=None, rhs=None, name=''):
+            # expr 已包含比较运算符（== / <= / >=），直接传入
+            return self._h.addConstr(expr, name=name or None)
+        def addConstrs(self, gen, name=''):
+            out = {}
+            for idx, e in enumerate(gen):
+                out[idx] = self._h.addConstr(e, name=('%s_%d' % (name, idx)) if name else None)
+            return out
+        def setObjective(self, expr, sense, *_args, **_kwargs):
+            self._h.setObjective(expr, sense)
+        def setParam(self, param, value):
+            if param == 'TimeLimit':
+                self._h.setOptionValue('time_limit', float(value))
+            elif param == 'MIPGap':
+                self._h.setOptionValue('mip_rel_gap', float(value))
+            # Method 等参数 HiGHS 自动选择，忽略
+        def optimize(self):
+            self._h.optimize()
+            self.Status = _HIGHS_STATUS_MAP.get(self._h.getModelStatus(), 14)
+            try:
+                self.ObjVal = self._h.getObjectiveValue()
+            except Exception:
+                self.ObjVal = None
+            try:
+                _info = self._h.getInfo('mip_gap')
+                self.MIPGap = _info[1] if isinstance(_info, tuple) else _info
+            except Exception:
+                self.MIPGap = None
+        def write(self, path):
+            try:
+                self._h.writeModel(path)
+            except Exception:
+                pass
+
+    msingle_cls = _HiModel
+else:
+    from gurobipy import *
+    msingle_cls = Model
+    _S_BINARY = GRB.BINARY
+    _S_MAXIMIZE = GRB.MAXIMIZE
 
 # =============================================================================
 #  utility functions
@@ -141,12 +277,7 @@ def readTable(tableName, book, toInt = False):
     return(result)
 
 
-# 从DB读取算法输入数据的配置
-_PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-DB_PATH = os.path.join(_PROJECT_DIR, 'data', 'db', 'aps_or.db')
-
-
-## ===============================================================================================
+# ===============================================================================================
 ##   从Excel表读入数据
 ## ===============================================================================================
 
@@ -768,7 +899,7 @@ print('\n数据读入与处理时间:  ', runtime)
 ##  定义模型 Optimization Model
 ## =============================================================================
 
-msingle = Model('APS-v3')
+msingle = msingle_cls('APS-v3')
 
 ## 定义变量
 
@@ -872,7 +1003,7 @@ if len(SubstiNo) != 0:
             intager = 1
             # 设置整批替代的0-1整数变量
             for t in T:
-                Subbatch[i,t] = msingle.addVar(vtype = GRB.BINARY, name='Subbatch('+str(i)+','+str(t)+')')
+                Subbatch[i,t] = msingle.addVar(vtype = _S_BINARY, name='Subbatch('+str(i)+','+str(t)+')')
             
             
 
@@ -905,7 +1036,7 @@ msingle.setObjective(
     - quicksum(penalty*RawInf[i,t]  for i in Raw for t in T) 
     - quicksum(penalty*FixtInf[i,t]  for i in Fixture for t in T) 
     - 0.000001*quicksum(Substi[k,t] for k in SubstiNo for t in T) 
-    - quicksum(penalty*EquipInf[p,t] for p in Equip for t in T), GRB.MAXIMIZE 
+    - quicksum(penalty*EquipInf[p,t] for p in Equip for t in T), _S_MAXIMIZE 
     )
 
 startime1 = time.time()*1000
@@ -1173,10 +1304,10 @@ print('\n生成界平衡约束:  ', runtime)
 print()
 
 if intager == 1:
-    msingle.setParam(GRB.Param.MIPGap, _mipgap)                              ## 求解精度限制（收敛标准，DB: SOLVE_MIPGAP）
+    msingle.setParam('MIPGap', _mipgap)                              ## 求解精度限制（收敛标准，DB: SOLVE_MIPGAP）
 if _timelimit > 0:
-    msingle.setParam(GRB.Param.TimeLimit, _timelimit)                        ## 求解时间限制（秒，DB: SOLVE_TIME_LIMIT）
-#msingle.setParam(GRB.Param.Method,2)                                            ## 参数设置： -1 自动， 0 primal， 1 对偶， 2 内点法，3 并行
+    msingle.setParam('TimeLimit', _timelimit)                        ## 求解时间限制（秒，DB: SOLVE_TIME_LIMIT）
+#msingle.setParam('Method',2)                                            ## 参数设置： -1 自动， 0 primal， 1 对偶， 2 内点法，3 并行
 
 # 调用存储的基
 #filename2 = 'D:/My_Model/APS-New/single/FM/msingle-2.bas'
@@ -2135,7 +2266,8 @@ def writeResultsToDB():
                         9:'TIME_LIMIT', 10:'SOLUTION_LIMIT', 11:'INTERRUPTED',
                         12:'NUMERIC', 13:'SUBOPTIMAL', 14:'INPROGRESS', 15:'USER_OBJ_LIMIT'}
         try:
-            run_status = status_names.get(msingle.Status, str(msingle.Status))
+            _raw_status = msingle.Status
+            run_status = status_names.get(_raw_status, str(_raw_status))
         except Exception:
             run_status = None
         cur.execute(

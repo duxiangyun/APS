@@ -39,7 +39,7 @@ def run_etl():
     # 清表前快照非 Excel 来源的系统参数（求解参数/目标权重），
     # 重跑 ETL 后按快照恢复，避免用户在线修改的值丢失
     cursor.execute("SELECT param_key, param_value, description FROM core_biz_global_params")
-    _system_param_keys = {'SOLVE_MODE', 'SOLVE_MIPGAP', 'SOLVE_TIME_LIMIT',
+    _system_param_keys = {'SOLVE_SOLVER', 'SOLVE_MODE', 'SOLVE_MIPGAP', 'SOLVE_TIME_LIMIT',
                           'W_SALES', 'W_DELAY', 'W_PURCHASE', 'W_PROCESS', 'W_INVENTORY'}
     system_param_snapshot = {r['param_key']: (r['param_value'], r['description'])
                              for r in cursor.fetchall() if r['param_key'] in _system_param_keys}
@@ -369,6 +369,7 @@ def run_etl():
         #       步骤 0 清表会将其删除，此处按清表前快照恢复；
         #       快照中不存在的（首次运行）用 INSERT OR IGNORE 补默认值
         system_params = [
+            ('SOLVE_SOLVER', 'gurobi', '求解器选择: gurobi（商业，默认）或 highs（开源，需安装 highspy）'),
             ('SOLVE_MODE', 'auto', '求解模式: auto=按数据自动选择(LP,存在整批替代规则时自动转MILP), milp=强制整数规划'),
             ('SOLVE_MIPGAP', '0.0001', 'MILP求解精度(相对Gap收敛标准)'),
             ('SOLVE_TIME_LIMIT', '0.0', '求解时间限制(秒,0=不限制)'),

@@ -1,4 +1,124 @@
-from gurobipy import *
+import sqlite3
+import os
+
+# Solver selection (same logic as APS-SPlant-v2-sqlite.py)
+try:
+    import highspy
+    _HAS_HIGS = True
+except Exception:
+    _HAS_HIGS = False
+
+_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        'data', 'db', 'aps_or.db')
+
+def _select_solver():
+    conn = sqlite3.connect(_DB_PATH)
+    try:
+        row = conn.execute(
+            "SELECT param_value FROM core_biz_global_params WHERE param_key='SOLVE_SOLVER'"
+        ).fetchone()
+        return (row[0] or 'gurobi').strip().lower()
+    finally:
+        conn.close()
+
+_solver_name = _select_solver()
+
+if _solver_name == 'highs' and _HAS_HIGS:
+    from highspy import Highs, ObjSense, HighsVarType, HighsModelStatus, kHighsInf
+    from highspy.highs import highs_var, highs_cons, highs_linear_expression
+
+    # ---- 兼容补丁：为 highspy 对象补充 Gurobi 风格接口 ----
+    def _hi_truediv(self, other):
+        return self.__mul__(1.0 / float(other))
+    highs_linear_expression.__truediv__ = _hi_truediv
+    highs_var.__truediv__ = _hi_truediv
+    def _hi_var_x(self):
+        return self.highs.allVariableValues()[self.index]
+    highs_var.x = property(_hi_var_x)
+    def _hi_var_getub(self):
+        return self.highs.getLp().col_upper_[self.index]
+    def _hi_var_setub(self, v):
+        _lb = self.highs.getLp().col_lower_[self.index]
+        self.highs.changeColBounds(self.index, _lb, float(v))
+    highs_var.ub = property(_hi_var_getub, _hi_var_setub)
+    highs_var.setub = _hi_var_setub
+    def _hi_con_pi(self):
+        return self.highs.allConstrDuals()[self.index]
+    highs_cons.Pi = property(_hi_con_pi)
+
+    _S_BINARY   = HighsVarType.kInteger
+    _S_MAXIMIZE = ObjSense.kMaximize
+
+    def quicksum(gen):
+        """兼容 Gurobi quicksum"""
+        result = None
+        for term in gen:
+            result = term if result is None else result + term
+        return result if result is not None else 0
+
+    _HIGHS_STATUS_MAP = {
+        HighsModelStatus.kOptimal: 2,
+        HighsModelStatus.kInfeasible: 3,
+        HighsModelStatus.kUnboundedOrInfeasible: 4,
+        HighsModelStatus.kUnbounded: 5,
+        HighsModelStatus.kIterationLimit: 7,
+        HighsModelStatus.kTimeLimit: 9,
+        HighsModelStatus.kSolutionLimit: 10,
+        HighsModelStatus.kInterrupt: 11,
+        HighsModelStatus.kUnknown: 14,
+    }
+
+    class _HiModel:
+        """HiGHS 模型包装，兼容 Gurobi Model 常用接口"""
+        def __init__(self, name):
+            self._h = Highs()
+            self.Status = None; self.ObjVal = None; self.MIPGap = None
+        def addVar(self, lb=0.0, ub=kHighsInf, vtype=None, name=''):
+            if vtype is not None:
+                return self._h.addVariable(0.0, 1.0, 0.0,
+                                           HighsVarType.kInteger, name=name or None)
+            return self._h.addVariable(float(lb), float(ub), 0.0,
+                                       HighsVarType.kContinuous, name=name or None)
+        def addVars(self, dim1, dim2, lb=0.0, ub=kHighsInf, name=''):
+            return {(i, j): self._h.addVariable(float(lb), float(ub), 0.0,
+                                                HighsVarType.kContinuous,
+                                                name='%s[%s,%s]' % (name, i, j))
+                    for i in dim1 for j in dim2}
+        def addConstr(self, expr, sense=None, rhs=None, name=''):
+            return self._h.addConstr(expr, name=name or None)
+        def addConstrs(self, gen, name=''):
+            out = {}
+            for idx, e in enumerate(gen):
+                out[idx] = self._h.addConstr(e, name=('%s_%d' % (name, idx)) if name else None)
+            return out
+        def setObjective(self, expr, sense, *_args, **_kwargs):
+            self._h.setObjective(expr, sense)
+        def setParam(self, param, value):
+            if param == 'TimeLimit':
+                self._h.setOptionValue('time_limit', float(value))
+            elif param == 'MIPGap':
+                self._h.setOptionValue('mip_rel_gap', float(value))
+        def optimize(self):
+            self._h.optimize()
+            self.Status = _HIGHS_STATUS_MAP.get(self._h.getModelStatus(), 14)
+            try: self.ObjVal = self._h.getObjectiveValue()
+            except Exception: pass
+            try:
+                _info = self._h.getInfo('mip_gap')
+                self.MIPGap = _info[1] if isinstance(_info, tuple) else _info
+            except Exception:
+                self.MIPGap = None
+        def write(self, path):
+            try: self._h.writeModel(path)
+            except Exception: pass
+
+    def _create_model(name):
+        return _HiModel(name)
+else:
+    from gurobipy import *
+    _S_BINARY = GRB.BINARY
+    _S_MAXIMIZE = GRB.MAXIMIZE
+    _create_model = Model
 
 def define_model(data):
     nfixtable    = data['nfixtable']
@@ -125,7 +245,7 @@ def define_model(data):
     FixtCap  = data['FixtCap']
     penalty  = data['penalty']
 
-    msingle = Model('APS-v3')
+    msingle = _create_model('APS-v3')
 
     Prodmade = {}
     for i in Product:
@@ -209,7 +329,7 @@ def define_model(data):
             if SubBatch[i] == 1:
                 intager = 1
                 for t in T:
-                    Subbatch[i,t] = msingle.addVar(vtype = GRB.BINARY, name='Subbatch('+str(i)+','+str(t)+')')
+                    Subbatch[i,t] = msingle.addVar(vtype = _S_BINARY, name='Subbatch('+str(i)+','+str(t)+')')
 
     SaleInf   = msingle.addVars(Order, T, name = 'SaleInf')
     EquipInf  = msingle.addVars(Equip, T, name = 'EquipInf')
@@ -234,7 +354,7 @@ def define_model(data):
         - quicksum(penalty*RawInf[i,t]  for i in Raw for t in T) 
         - quicksum(penalty*FixtInf[i,t]  for i in Fixture for t in T) 
         - 0.000001*quicksum(Substi[k,t] for k in SubstiNo for t in T) 
-        - quicksum(penalty*EquipInf[p,t] for p in Equip for t in T), GRB.MAXIMIZE 
+        - quicksum(penalty*EquipInf[p,t] for p in Equip for t in T), _S_MAXIMIZE
         )
 
     SaleBal = {}

@@ -113,28 +113,43 @@ async function poll() {
             '</div>';
     }
 }
+// 收集页面上的求解参数
+function collectSolveParams() {
+    const payload = {};
+    document.querySelectorAll('[data-solve-key]').forEach(el => payload[el.dataset.solveKey] = el.value);
+    return payload;
+}
+// 保存求解参数；showMsg 控制是否在页面提示。返回 true=成功
+async function saveParams(showMsg) {
+    const r = await fetch('/api/solve/params', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(collectSolveParams())
+    }).then(x => x.json());
+    const el = document.getElementById('paramMsg');
+    if (showMsg) {
+        el.innerHTML = r.updated
+            ? '<i class="fas fa-check-circle text-success"></i> ' + r.message
+            : '<i class="fas fa-times-circle text-danger"></i> ' + r.message;
+        setTimeout(() => el.innerHTML = '', 4000);
+    }
+    return !!r.updated;
+}
+// 启动排产前自动保存参数，避免“改了求解器忘记点保存”
 btn.addEventListener('click', async () => {
+    const saved = await saveParams(false);
+    if (!saved) {
+        msgBox.innerHTML = '<div class="alert alert-danger mb-0"><i class="fas fa-times-circle"></i> 求解参数保存失败，请检查参数（或先点击“保存参数”查看提示）后再启动。</div>';
+        return;
+    }
     const r = await fetch('/api/solve/start', {method: 'POST'}).then(x => x.json());
     msgBox.innerHTML = r.started
-        ? '<div class="alert alert-info mb-0"><i class="fas fa-cog fa-spin"></i> ' + r.message + '（PID ' + r.pid + '）</div>'
+        ? '<div class="alert alert-info mb-0"><i class="fas fa-cog fa-spin"></i> ' + r.message + '（PID ' + r.pid + '，参数已自动保存）</div>'
         : '<div class="alert alert-warning mb-0">' + r.message + '</div>';
     if (r.started) { setRunning(true); logPanel.style.display = 'block'; if (!timer) timer = setInterval(poll, 1000); }
 });
 {% if status.running %}logPanel.style.display = 'block'; timer = setInterval(poll, 1000);{% endif %}
 
 const btnSave = document.getElementById('btnSaveParams');
-btnSave.addEventListener('click', async () => {
-    const payload = {};
-    document.querySelectorAll('[data-solve-key]').forEach(el => payload[el.dataset.solveKey] = el.value);
-    const r = await fetch('/api/solve/params', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(payload)
-    }).then(x => x.json());
-    const el = document.getElementById('paramMsg');
-    el.innerHTML = r.updated
-        ? '<i class="fas fa-check-circle text-success"></i> ' + r.message
-        : '<i class="fas fa-times-circle text-danger"></i> ' + r.message;
-    setTimeout(() => el.innerHTML = '', 4000);
-});
+btnSave.addEventListener('click', () => saveParams(true));
 </script>
 {% endblock %}

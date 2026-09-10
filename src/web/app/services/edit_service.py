@@ -355,7 +355,7 @@ GLOBAL_PARAM_GROUPS = [
         "STAT_NUM_PRODUCTS", "STAT_NUM_SEMIS", "STAT_NUM_RAWS",
     ]},
     {"label": "求解参数", "icon": "fa-sliders-h", "keys": [
-        "SOLVE_MODE", "SOLVE_MIPGAP", "SOLVE_TIME_LIMIT",
+        "SOLVE_SOLVER", "SOLVE_MODE", "SOLVE_MIPGAP", "SOLVE_TIME_LIMIT",
     ]},
     {"label": "目标权重", "icon": "fa-balance-scale", "keys": [
         "W_SALES", "W_DELAY", "W_PURCHASE", "W_PROCESS", "W_INVENTORY",
@@ -374,6 +374,7 @@ _PARAM_INT = {
 _PARAM_NUMBER = {"DEMAND_RATE", "SOLVE_MIPGAP", "SOLVE_TIME_LIMIT",
                  "W_SALES", "W_DELAY", "W_PURCHASE", "W_PROCESS", "W_INVENTORY"}
 _PARAM_SELECT = {
+    "SOLVE_SOLVER": [["gurobi", "gurobi（默认，商业求解器）"], ["highs", "highs（开源求解器，需安装 highspy）"]],
     "SOLVE_MODE": [["auto", "auto（自动选择）"], ["milp", "milp（强制整数规划）"]],
 }
 _PARAM_HINTS = {
