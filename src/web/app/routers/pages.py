@@ -37,8 +37,8 @@ templates.env.cache = None
 async def dashboard(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
     data = get_dashboard(conn)
     return templates.TemplateResponse(
-        name="dashboard.html",
-        context={
+        "dashboard.html",
+        {
             "request": request,
             "data": data,
             "active_page": "dashboard",
@@ -60,8 +60,8 @@ async def overview(request: Request, conn: sqlite3.Connection = Depends(get_db_c
     total = sum(t["count"] for t in tables)
     non_empty = sum(1 for t in tables if t["count"] > 0)
     return templates.TemplateResponse(
-        name="base_data/overview.html",
-        context={
+        "base_data/overview.html",
+        {
             "request": request,
             "tables": tables,
             "total": total,
