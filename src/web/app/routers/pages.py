@@ -36,12 +36,16 @@ templates.env.cache = None
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
     data = get_dashboard(conn)
-    return templates.TemplateResponse("dashboard.html", {
-        "request": request,
-        "data": data,
-        "active_page": "dashboard",
-        "sidebar_menu": SIDEBAR_MENU,
-    })
+    return templates.TemplateResponse(
+        name="dashboard.html",
+        context={
+            "request": request,
+            "data": data,
+            "active_page": "dashboard",
+            "sidebar_menu": SIDEBAR_MENU,
+        }
+    )
+
 
 
 @router.get("/", include_in_schema=False)
@@ -55,17 +59,20 @@ async def overview(request: Request, conn: sqlite3.Connection = Depends(get_db_c
     tables = get_all_table_counts(conn)
     total = sum(t["count"] for t in tables)
     non_empty = sum(1 for t in tables if t["count"] > 0)
-    return templates.TemplateResponse("base_data/overview.html", {
-        "request": request,
-        "tables": tables,
-        "total": total,
-        "non_empty": non_empty,
-        "active_page": "overview",
-        "sidebar_menu": SIDEBAR_MENU,
-        "page_title": "基础数据总览",
-        "page_icon": "fa-database",
-        "link_base": "/base-data",
-    })
+    return templates.TemplateResponse(
+        name="base_data/overview.html",
+        context={
+            "request": request,
+            "tables": tables,
+            "total": total,
+            "non_empty": non_empty,
+            "active_page": "overview",
+            "sidebar_menu": SIDEBAR_MENU,
+            "page_title": "基础数据总览",
+            "page_icon": "fa-database",
+            "link_base": "/base-data",
+        }
+    )
 
 
 @router.get("/base-data/{table_key}", response_class=HTMLResponse)
