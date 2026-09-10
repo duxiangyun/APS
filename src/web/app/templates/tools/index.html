@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block content %}
+<h4><i class="fas fa-tools text-primary"></i> 开发工具</h4>
+<p class="text-muted">汇集开发与验证、测试类工具入口，用于排查数据、对比算法与系统自检。</p>
+<div class="row g-3 mt-1">
+    {% for t in tools %}
+    <div class="col-md-4">
+        {% if t.status == 'available' %}
+        <a href="{{ t.url }}" class="text-decoration-none">
+        {% endif %}
+            <div class="card h-100 metric-card {% if t.status != 'available' %}opacity-50{% endif %}">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <h5 class="card-title text-dark mb-2"><i class="fas {{ t.icon }} text-primary me-2"></i>{{ t.name }}</h5>
+                        {% if t.status == 'available' %}
+                        <span class="badge bg-success">可用</span>
+                        {% else %}
+                        <span class="badge bg-secondary">规划中</span>
+                        {% endif %}
+                    </div>
+                    <p class="card-text text-muted small mb-0">{{ t.desc }}</p>
+                </div>
+            </div>
+        {% if t.status == 'available' %}
+        </a>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+<div class="alert alert-info mt-4 mb-0">
+    <i class="fas fa-info-circle"></i>
+    需要新增验证 / 测试工具（如求解器对比、ETL 导入验证、模型一致性检查等），可在本页登记入口并实现对应功能。
+</div>
+{% endblock %}

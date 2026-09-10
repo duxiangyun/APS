@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="mb-0"><i class="fas fa-book-open text-primary"></i> {{ title }}</h4>
+    <a href="/docs" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left"></i> 返回文档中心</a>
+</div>
+<div class="row g-3">
+    <!-- 左侧目录导航 -->
+    <div class="col-md-3">
+        <div class="card position-sticky" style="top: 20px;">
+            <div class="card-header py-2"><i class="fas fa-list-ul"></i> 目录</div>
+            <div id="toc" class="card-body py-2 small" style="max-height: 75vh; overflow-y: auto;">
+                <div class="text-muted">生成中…</div>
+            </div>
+        </div>
+    </div>
+    <!-- 右侧文档正文 -->
+    <div class="col-md-9">
+        <div class="card">
+            <div class="card-body">
+                <div id="doc-body" class="markdown-body"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+// Markdown 原文由后端注入
+const MD_SOURCE = {{ md_content|tojson }};
+
+// 渲染 Markdown
+document.getElementById('doc-body').innerHTML = marked.parse(MD_SOURCE);
+
+// 为标题生成锚点 id，并构建目录
+(function buildToc() {
+    const body = document.getElementById('doc-body');
+    const toc = document.getElementById('toc');
+    const heads = body.querySelectorAll('h1, h2, h3');
+    if (!heads.length) { toc.innerHTML = '<div class="text-muted">本文档无标题目录</div>'; return; }
+    toc.innerHTML = '';
+    heads.forEach((h, i) => {
+        const id = 'sec-' + i;
+        h.id = id;
+        const level = parseInt(h.tagName.substring(1));
+        const link = document.createElement('a');
+        link.href = '#' + id;
+        link.className = 'd-block text-decoration-none text-secondary py-1';
+        link.style.paddingLeft = ((level - 1) * 12) + 'px';
+        if (level === 1) link.classList.add('fw-bold', 'text-dark');
+        link.textContent = h.textContent;
+        link.addEventListener('click', e => {
+            e.preventDefault();
+            document.getElementById(id).scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+        toc.appendChild(link);
+    });
+})();
+</script>
+<style>
+.markdown-body { line-height: 1.8; color: #212529; }
+.markdown-body h1 { font-size: 1.6rem; border-bottom: 2px solid #dee2e6; padding-bottom: .4rem; margin: 1.2rem 0 1rem; }
+.markdown-body h2 { font-size: 1.3rem; margin: 1.4rem 0 .8rem; }
+.markdown-body h3 { font-size: 1.1rem; margin: 1.1rem 0 .6rem; }
+.markdown-body table { border-collapse: collapse; width: 100%; margin: 1rem 0; font-size: .9rem; }
+.markdown-body th, .markdown-body td { border: 1px solid #dee2e6; padding: 6px 10px; text-align: left; }
+.markdown-body th { background-color: #f1f3f5; }
+.markdown-body code { background-color: #f1f3f5; padding: 2px 5px; border-radius: 3px; font-size: .88em; }
+.markdown-body pre { background-color: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px; padding: 12px; overflow-x: auto; }
+.markdown-body pre code { background: none; padding: 0; }
+.markdown-body blockquote { border-left: 4px solid #adb5bd; margin: 1rem 0; padding: .2rem 1rem; color: #6c757d; }
+</style>
+{% endblock %}

@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<h4><i class="fas fa-book text-primary"></i> 项目文档</h4>
+<p class="text-muted">产品规划、模型定义、数据库设计等项目文档，点击卡片在线阅读。</p>
+<div class="row g-3 mt-1">
+    {% for d in docs %}
+    <div class="col-md-6">
+        <a href="/docs/view?file={{ d.file }}" class="text-decoration-none">
+            <div class="card h-100 metric-card">
+                <div class="card-body">
+                    <h5 class="card-title text-dark"><i class="fas fa-file-alt text-primary me-2"></i>{{ d.title }}</h5>
+                    <p class="card-text text-muted small mb-2">{{ d.summary or '（无摘要）' }}</p>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span class="badge bg-secondary">{{ d.file }}</span>
+                        <span class="text-muted small">{{ d.size_kb }} KB</span>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+    {% else %}
+    <div class="col-12">
+        <div class="alert alert-warning">docs 目录下暂未找到 Markdown 文档。</div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

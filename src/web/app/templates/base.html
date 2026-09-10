@@ -33,6 +33,10 @@
         .sidebar .nav-item.collapsed .arrow { transform: rotate(-90deg); }
         .sidebar .sub-menu { background-color: #2d3436; padding-left: 15px; display: none; }
         .sidebar .sub-menu.show { display: block; }
+        /* 三级菜单：开发工具下的数据子分组 */
+        .sidebar .sub-group-toggle { background-color: #2b3038; font-size: 0.9rem; }
+        .sidebar .sub-menu.sub-sub-menu { background-color: #262b30; padding-left: 0; }
+        .sidebar .sub-sub-menu a { padding-left: 34px; font-size: 0.86rem; }
         .sidebar .nav-item.disabled { opacity: 0.4; pointer-events: none; }
         .sidebar .menu-label { margin-left: 8px; }
         .content-wrapper { margin-left: 220px; min-height: 100vh; }
@@ -62,17 +66,43 @@
         <div class="nav-title"><i class="fas fa-industry"></i> APS 智能排产系统</div>
         <nav>
             {% for menu in sidebar_menu %}
+                {# 收集该菜单下所有层级的 key，用于判断是否展开/高亮 #}
+                {% set leaf_keys = [menu.key] %}
+                {% for c in menu.get('children', []) %}
+                    {% set _ = leaf_keys.append(c.key) %}
+                    {% for g in c.get('children', []) %}
+                        {% set _ = leaf_keys.append(g.key) %}
+                    {% endfor %}
+                {% endfor %}
+                {% set menu_active = active_page in leaf_keys %}
                 {% if menu.children %}
-                <div class="nav-item {% if menu.enabled and active_page in menu.children | map(attribute='key') | list %} {% else %} collapsed {% endif %} {% if not menu.enabled %} disabled {% endif %}"
-                     onclick="{% if menu.enabled %}toggleSubMenu('{{ menu.key }}'){% endif %}">
+                <div class="nav-item {% if menu.enabled and menu_active %}{% else %}collapsed{% endif %} {% if not menu.enabled %}disabled{% endif %}"
+                     onclick="{% if menu.enabled %}toggleSubMenu('{{ menu.key }}', this){% endif %}">
                     <i class="fas {{ menu.icon }}"></i><span class="menu-label">{{ menu.label }}</span>
                     <span class="arrow">▶</span>
                 </div>
-                <div id="{{ menu.key }}" class="sub-menu {% if menu.enabled and active_page in menu.children | map(attribute='key') | list %}show{% endif %}">
+                <div id="{{ menu.key }}" class="sub-menu {% if menu.enabled and menu_active %}show{% endif %}">
                     {% for child in menu.children %}
-                    <a href="{{ child.url }}" {% if active_page == child.key %}class="active"{% endif %}>
-                        <i class="fas {{ child.icon }}"></i><span class="menu-label">{{ child.label }}</span>
-                    </a>
+                        {% if child.children %}
+                        {# 二级分组（内含三级链接）#}
+                        {% set sub_active = active_page in (child.children | map(attribute='key') | list) %}
+                        <div class="nav-item sub-group-toggle {% if sub_active %}{% else %}collapsed{% endif %}"
+                             onclick="toggleSubMenu('{{ menu.key }}__{{ child.key }}', this)">
+                            <i class="fas {{ child.icon }}"></i><span class="menu-label">{{ child.label }}</span>
+                            <span class="arrow">▶</span>
+                        </div>
+                        <div id="{{ menu.key }}__{{ child.key }}" class="sub-menu sub-sub-menu {% if sub_active %}show{% endif %}">
+                            {% for gc in child.children %}
+                            <a href="{{ gc.url }}" {% if active_page == gc.key %}class="active"{% endif %}>
+                                <i class="fas {{ gc.icon }}"></i><span class="menu-label">{{ gc.label }}</span>
+                            </a>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <a href="{{ child.url if child.url else '#' }}" {% if active_page == child.key %}class="active"{% endif %}>
+                            <i class="fas {{ child.icon }}"></i><span class="menu-label">{{ child.label }}</span>
+                        </a>
+                        {% endif %}
                     {% endfor %}
                 </div>
                 {% else %}
@@ -89,9 +119,11 @@
         </div>
     </div>
     <script>
-    function toggleSubMenu(id) {
-        document.getElementById(id).classList.toggle('show');
-        event.currentTarget.classList.toggle('collapsed');
+    function toggleSubMenu(id, el) {
+        const box = document.getElementById(id);
+        if (!box) return;
+        box.classList.toggle('show');
+        if (el) el.classList.toggle('collapsed');
     }
     </script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
