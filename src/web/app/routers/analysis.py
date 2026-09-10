@@ -30,6 +30,7 @@ from app.constants import SIDEBAR_MENU
 router = APIRouter(tags=["analysis"])
 _BASE_DIR = Path(__file__).resolve().parent.parent.parent
 templates = Jinja2Templates(directory=str(_BASE_DIR / "app" / "templates"))
+templates.env.cache = None
 
 
 def _ctx(request: Request, active: str, **kw):

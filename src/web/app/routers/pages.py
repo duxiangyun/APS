@@ -30,6 +30,7 @@ from app.constants import COLUMN_DISPLAY_ORDER, SIDEBAR_MENU
 router = APIRouter(tags=["pages"])
 _BASE_DIR = Path(__file__).resolve().parent.parent.parent
 templates = Jinja2Templates(directory=str(_BASE_DIR / "app" / "templates"))
+templates.env.cache = None
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
