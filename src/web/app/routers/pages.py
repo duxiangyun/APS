@@ -3,7 +3,7 @@ import sqlite3
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.dependencies import get_db_conn, get_pagination, PaginationParams
@@ -44,7 +44,13 @@ async def dashboard(request: Request, conn: sqlite3.Connection = Depends(get_db_
     })
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/", include_in_schema=False)
+async def root():
+    # 默认进入工作台页面
+    return RedirectResponse(url="/dashboard")
+
+
+@router.get("/base-data", response_class=HTMLResponse)
 async def overview(request: Request, conn: sqlite3.Connection = Depends(get_db_conn)):
     tables = get_all_table_counts(conn)
     total = sum(t["count"] for t in tables)

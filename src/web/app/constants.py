@@ -957,7 +957,7 @@ SIDEBAR_MENU = [
         "icon": "fa-database",
         "enabled": True,
         "children": [
-            {"key": "overview", "label": "总览", "url": "/", "icon": "fa-list"},
+            {"key": "overview", "label": "总览", "url": "/base-data", "icon": "fa-list"},
             {"key": "material", "label": "物料主数据", "url": "/base-data/material", "icon": "fa-box"},
             {"key": "product_ext", "label": "产品扩展", "url": "/base-data/product_ext", "icon": "fa-box-open"},
             {"key": "semi_ext", "label": "自制件扩展", "url": "/base-data/semi_ext", "icon": "fa-cogs"},
