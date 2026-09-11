@@ -207,16 +207,36 @@ EDITABLE_TABLES = {
 }
 
 
-def get_editable_config(table_name: str) -> dict | None:
-    """返回可直接 JSON 序列化的编辑配置（含操作所需全部信息）"""
+def get_editable_config(table_name: str, conn: sqlite3.Connection | None = None) -> dict | None:
+    """返回可直接 JSON 序列化的编辑配置（含操作所需全部信息）
+
+    当传入 conn 时，订单表的 product_code 字段会从产品库（core_md_material 中
+    category='PRODUCT' 的记录）动态加载为 select 下拉选项，避免手输错码。
+    """
     meta = EDITABLE_TABLES.get(table_name)
     if not meta:
         return None
+    columns = [dict(c) for c in meta["columns"]]
+    # 订单表的产品代码改为从产品库选择
+    if table_name == "core_biz_demand_order" and conn is not None:
+        try:
+            rows = conn.execute(
+                "SELECT material_code, material_name FROM core_md_material "
+                "WHERE category = 'PRODUCT' ORDER BY material_code"
+            ).fetchall()
+            product_options = [[r["material_code"], r["material_name"] or ""]
+                               for r in rows]
+        except Exception:
+            product_options = []
+        for col in columns:
+            if col["name"] == "product_code":
+                col["type"] = "select"
+                col["options"] = product_options
     return {
         "label": meta["label"],
         "pk": meta["pk"],
         "insert": meta.get("insert", False),
-        "columns": meta["columns"],
+        "columns": columns,
     }
 
 
@@ -308,6 +328,19 @@ def create_row(conn: sqlite3.Connection, table_name: str, fields: dict) -> dict:
     if not meta.get("insert"):
         raise ValueError(f"表 {table_name} 不支持新增")
     clean = _check_fields(meta, fields, for_insert=True)
+    # 主键预检：在 INSERT 前明确提示主键重复，避免笼统的 IntegrityError 报错
+    pk_cols = meta["pk"]
+    pk_in_clean = [k for k in pk_cols if k in clean]
+    if pk_in_clean:
+        where = " AND ".join(f"{k} = ?" for k in pk_in_clean)
+        args = [clean[k] for k in pk_in_clean]
+        exists = conn.execute(
+            f"SELECT 1 FROM {table_name} WHERE {where} LIMIT 1", args
+        ).fetchone()
+        if exists:
+            shown = "、".join(f"{k}={clean[k]}" for k in pk_in_clean)
+            label = meta.get("label", table_name)
+            return {"ok": False, "message": f"{label}已存在相同记录（{shown}），不允许重复"}
     cols = list(clean.keys())
     phs = ", ".join("?" for _ in cols)
     try:

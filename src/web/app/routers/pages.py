@@ -116,7 +116,7 @@ async def table_detail(
         "sidebar_menu": SIDEBAR_MENU,
         "api_base": "/api/base-data",
         "back_url": "/",
-        "editable_config": get_editable_config(table_name),
+        "editable_config": get_editable_config(table_name, conn),
     })
 
 
@@ -241,7 +241,25 @@ async def biz_table_detail(
         "sidebar_menu": SIDEBAR_MENU,
         "api_base": "/api/biz",
         "back_url": "/biz",
-        "editable_config": get_editable_config(table_name),
+        "editable_config": get_editable_config(table_name, conn),
+    })
+
+
+@router.get("/biz/bom/viz", response_class=HTMLResponse)
+async def bom_viz_page(
+    request: Request,
+    conn: sqlite3.Connection = Depends(get_db_conn),
+):
+    """BOM 可视化页面：支持表格 / 树形 / ECharts 三种视图切换，含新增/编辑/删除"""
+    editable_config = get_editable_config("core_biz_bom", conn)
+    return templates.TemplateResponse(request, "biz/bom_viz.html", {
+        "request": request,
+        "active_page": "bom",
+        "sidebar_menu": SIDEBAR_MENU,
+        "page_title": "BOM 可视化",
+        "page_icon": "fa-sitemap",
+        "table_name": "core_biz_bom",
+        "editable_config": editable_config,
     })
 
 

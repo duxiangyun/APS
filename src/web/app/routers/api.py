@@ -252,6 +252,79 @@ async def biz_export_csv(
     )
 
 
+@biz_router.get("/bom/tree")
+async def bom_tree(conn: sqlite3.Connection = Depends(get_db_conn)):
+    """BOM 树形数据：返回嵌套树结构 + 平铺列表，供前端三种视图渲染。
+
+    树结构按 bom_level 递归，顶层为产品（bom_level=1 的父物料）。
+    每节点含 material_code/material_name/category/quantity/level/children。
+    """
+    rows = conn.execute(
+        "SELECT b.id, b.parent_material_code, b.child_material_code, b.quantity, b.bom_level, "
+        "pm.material_name AS parent_name, pm.category AS parent_cat, "
+        "cm.material_name AS child_name, cm.category AS child_cat "
+        "FROM core_biz_bom b "
+        "LEFT JOIN core_md_material pm ON pm.material_code = b.parent_material_code "
+        "LEFT JOIN core_md_material cm ON cm.material_code = b.child_material_code "
+        "ORDER BY b.bom_level, b.parent_material_code, b.child_material_code"
+    ).fetchall()
+
+    # 找顶层父节点（在 parent 列出现但不在 child 列出现的物料）
+    parent_codes = {r["parent_material_code"] for r in rows}
+    child_codes = {r["child_material_code"] for r in rows}
+    top_codes = parent_codes - child_codes  # 顶层产品
+
+    # 物料名称/分类缓存
+    name_map = {}
+    cat_map = {}
+    for r in rows:
+        name_map[r["parent_material_code"]] = r["parent_name"] or ""
+        name_map[r["child_material_code"]] = r["child_name"] or ""
+        cat_map[r["parent_material_code"]] = r["parent_cat"] or ""
+        cat_map[r["child_material_code"]] = r["child_cat"] or ""
+
+    # 按 parent 分组子节点
+    children_map = {}
+    for r in rows:
+        children_map.setdefault(r["parent_material_code"], []).append({
+            "code": r["child_material_code"],
+            "name": r["child_name"] or "",
+            "category": r["child_cat"] or "",
+            "quantity": r["quantity"],
+            "level": r["bom_level"],
+        })
+
+    def build_node(code, level, quantity=1):
+        kids = children_map.get(code, [])
+        return {
+            "code": code,
+            "name": name_map.get(code, ""),
+            "category": cat_map.get(code, ""),
+            "level": level,
+            "quantity": quantity,  # 相对父节点的单位用量（顶层节点为1）
+            "children": [build_node(k["code"], level + 1, k["quantity"]) for k in kids],
+        }
+
+    tree = [build_node(c, 1, 1) for c in sorted(top_codes)]
+
+    # 平铺列表（供表格视图）
+    flat = [
+        {
+            "id": r["id"],
+            "parent_code": r["parent_material_code"],
+            "parent_name": r["parent_name"] or "",
+            "child_code": r["child_material_code"],
+            "child_name": r["child_name"] or "",
+            "child_category": r["child_cat"] or "",
+            "quantity": r["quantity"],
+            "bom_level": r["bom_level"],
+        }
+        for r in rows
+    ]
+
+    return {"tree": tree, "flat": flat, "total": len(flat)}
+
+
 @alg_router.get("", response_model=TableOverviewResponse)
 async def alg_overview(conn: sqlite3.Connection = Depends(get_db_conn)):
     tables = get_all_alg_table_counts(conn)

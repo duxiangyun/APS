@@ -1009,7 +1009,7 @@ SIDEBAR_MENU = [
         "children": [
             {"key": "biz_overview", "label": "总览", "url": "/biz", "icon": "fa-list"},
             {"key": "demand_order", "label": "订单需求", "url": "/biz/demand_order", "icon": "fa-file-invoice"},
-            {"key": "bom", "label": "BOM", "url": "/biz/bom", "icon": "fa-sitemap"},
+            {"key": "bom", "label": "BOM", "url": "/biz/bom/viz", "icon": "fa-sitemap"},
             {"key": "wip", "label": "在制品", "url": "/biz/wip", "icon": "fa-spinner"},
             {"key": "outsource_limit", "label": "外协周期限额", "url": "/biz/outsource_limit", "icon": "fa-truck"},
             {"key": "purchase_limit", "label": "采购周期限额", "url": "/biz/purchase_limit", "icon": "fa-shopping-cart"},

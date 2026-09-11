@@ -1,0 +1,585 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4><i class="fas fa-sitemap text-primary"></i> {{ page_title }}
+        <small class="text-muted">物料清单多视图</small>
+    </h4>
+    <div class="d-flex align-items-center gap-2">
+        {% if editable_config and editable_config.insert %}
+        <button id="btnCreate" class="btn btn-sm btn-primary"><i class="fas fa-plus"></i> 新增记录</button>
+        {% endif %}
+        <a href="/biz/bom" class="btn btn-outline-secondary btn-sm">
+            <i class="fas fa-table"></i> 原始表格页
+        </a>
+        <!-- 表基本信息：hover 浮层 -->
+        <div class="info-btn-wrapper" title="查看表基本信息">
+            <i class="fas fa-info-circle text-primary fs-5"></i>
+            <div class="info-popover">
+                <div class="info-popover-title">BOM 表基本信息</div>
+                <div class="info-row">
+                    <span class="info-label">数据库表名</span>
+                    <span class="info-value">core_biz_bom</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">字段数量</span>
+                    <span class="info-value">{{ (editable_config.columns|length) if editable_config else '-' }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">记录总数</span>
+                    <span class="info-value" id="infoTotal">-</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">顶层产品数</span>
+                    <span class="info-value" id="infoRoots">-</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">最大层级</span>
+                    <span class="info-value" id="infoMaxLevel">-</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="d-flex align-items-center flex-wrap gap-3">
+            <div class="btn-group btn-group-sm" role="group" id="viewSwitcher">
+                <input type="radio" class="btn-check" name="viewMode" id="modeTable" autocomplete="off" checked>
+                <label class="btn btn-outline-primary" for="modeTable"><i class="fas fa-table"></i> 表格</label>
+                <input type="radio" class="btn-check" name="viewMode" id="modeTree" autocomplete="off">
+                <label class="btn btn-outline-primary" for="modeTree"><i class="fas fa-folder-tree"></i> 树形</label>
+                <input type="radio" class="btn-check" name="viewMode" id="modeChart" autocomplete="off">
+                <label class="btn btn-outline-primary" for="modeChart"><i class="fas fa-project-diagram"></i> 图形</label>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <input type="text" id="searchInput" class="form-control form-control-sm" style="width: 220px;"
+                       placeholder="🔍 搜索物料代码/名称...">
+            </div>
+            <div id="viewInfo" class="text-muted small ms-auto"></div>
+            <button id="exportBtn" class="btn btn-sm btn-outline-success">
+                <i class="fas fa-download"></i> 导出CSV
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- ============ 视图1：表格 ============ -->
+<div id="viewTable" class="card">
+    <div class="card-body">
+        <div class="table-container">
+            <table class="table table-sm table-striped table-hover table-bordered" id="bomTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>BOM层级</th>
+                        <th>父物料代码</th>
+                        <th>父物料名称</th>
+                        <th>子物料代码</th>
+                        <th>子物料名称</th>
+                        <th>子物料类型</th>
+                        <th>单位用量</th>
+                        {% if editable_config %}<th style="width:100px;">操作</th>{% endif %}
+                    </tr>
+                </thead>
+                <tbody id="bomTableBody"></tbody>
+            </table>
+        </div>
+        <div id="tablePagination" class="d-flex justify-content-center align-items-center mt-2"></div>
+    </div>
+</div>
+
+<!-- ============ 视图2：树形 ============ -->
+<div id="viewTree" class="card" style="display:none;">
+    <div class="card-body">
+        <div class="mb-2">
+            <button id="expandAll" class="btn btn-sm btn-outline-secondary"><i class="fas fa-expand-arrows-alt"></i> 全部展开</button>
+            <button id="collapseAll" class="btn btn-sm btn-outline-secondary"><i class="fas fa-compress-arrows-alt"></i> 全部折叠</button>
+        </div>
+        <div id="bomTreeContainer" style="max-height: 70vh; overflow-y: auto;"></div>
+    </div>
+</div>
+
+<!-- ============ 视图3：ECharts 图形 ============ -->
+<div id="viewChart" class="card" style="display:none;">
+    <div class="card-body">
+        <div class="mb-2 d-flex align-items-center gap-2">
+            <label class="form-label mb-0 small fw-bold">布局方向：</label>
+            <select id="chartOrient" class="form-select form-select-sm" style="width: auto;">
+                <option value="LR">横向（左→右）</option>
+                <option value="TB" selected>纵向（上→下）</option>
+            </select>
+            <span class="text-muted small ms-2">滚轮缩放，拖拽平移，点击节点折叠/展开；节点标签：物料代码（名称）×用量</span>
+        </div>
+        <div id="bomChartContainer" style="width: 100%; height: 70vh;"></div>
+    </div>
+</div>
+
+{% if editable_config %}
+<!-- 编辑/新增模态框 -->
+<div class="modal fade" id="editModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h5 class="modal-title" id="editModalTitle">新增记录</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="editForm" class="row g-3"></div>
+      </div>
+      <div class="modal-footer py-2">
+        <span id="editMsg" class="me-auto small"></span>
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">取消</button>
+        <button type="button" class="btn btn-primary btn-sm" id="btnSaveRow">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+<script>
+const TABLE_NAME = '{{ table_name }}';
+const EDITABLE = {{ editable_config | tojson if editable_config else 'null' }};
+let bomData = {tree: [], flat: [], total: 0};
+let currentMode = 'table';
+let chartInstance = null;
+let bsModal = null;
+let editMode = 'create';
+let editPk = null;
+
+// ---------- 数据加载 ----------
+async function loadBom() {
+    try {
+        const resp = await fetch('/api/biz/bom/tree');
+        if (!resp.ok) throw new Error('加载失败');
+        bomData = await resp.json();
+        document.getElementById('infoTotal').textContent = bomData.total;
+        document.getElementById('infoRoots').textContent = bomData.tree.length;
+        // 计算最大层级
+        let maxLevel = 0;
+        for (const r of bomData.flat) { if (r.bom_level > maxLevel) maxLevel = r.bom_level; }
+        const infoMax = document.getElementById('infoMaxLevel');
+        if (infoMax) infoMax.textContent = maxLevel;
+        document.getElementById('viewInfo').textContent = `共 ${bomData.total} 条 BOM 关系，${bomData.tree.length} 个顶层产品`;
+        renderTable();
+    } catch (e) {
+        console.error(e);
+        document.getElementById('bomTableBody').innerHTML =
+            '<tr><td colspan="8" class="text-center text-danger">数据加载失败</td></tr>';
+    }
+}
+
+// ---------- 视图切换 ----------
+function switchView(mode) {
+    currentMode = mode;
+    document.getElementById('viewTable').style.display = mode === 'table' ? '' : 'none';
+    document.getElementById('viewTree').style.display = mode === 'tree' ? '' : 'none';
+    document.getElementById('viewChart').style.display = mode === 'chart' ? '' : 'none';
+    if (mode === 'tree') renderTree();
+    if (mode === 'chart') renderChart();
+}
+
+document.querySelectorAll('input[name="viewMode"]').forEach(r => {
+    r.addEventListener('change', function() {
+        if (this.id === 'modeTable') switchView('table');
+        else if (this.id === 'modeTree') switchView('tree');
+        else if (this.id === 'modeChart') switchView('chart');
+    });
+});
+
+// ---------- 视图1：表格 ----------
+let tablePage = 1;
+let tablePageSize = 50;
+let tableSearch = '';
+
+function renderTable() {
+    let rows = bomData.flat;
+    if (tableSearch) {
+        const q = tableSearch.toLowerCase();
+        rows = rows.filter(r =>
+            (r.parent_code || '').toLowerCase().includes(q) ||
+            (r.parent_name || '').toLowerCase().includes(q) ||
+            (r.child_code || '').toLowerCase().includes(q) ||
+            (r.child_name || '').toLowerCase().includes(q)
+        );
+    }
+    const total = rows.length;
+    const totalPages = Math.max(1, Math.ceil(total / tablePageSize));
+    if (tablePage > totalPages) tablePage = totalPages;
+    const start = (tablePage - 1) * tablePageSize;
+    const pageRows = rows.slice(start, start + tablePageSize);
+
+    const catLabel = {PRODUCT: '产品', SEMI: '自制件', RAW: '原材料'};
+    const tbody = document.getElementById('bomTableBody');
+    if (pageRows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="${8 + (EDITABLE ? 1 : 0)}" class="text-center text-muted py-4">暂无数据</td></tr>`;
+    } else {
+        tbody.innerHTML = pageRows.map((r, idx) => `
+            <tr>
+                <td>${r.id !== undefined ? r.id : ''}</td>
+                <td>${r.bom_level}</td>
+                <td>${r.parent_code}</td>
+                <td>${r.parent_name || ''}</td>
+                <td>${r.child_code}</td>
+                <td>${r.child_name || ''}</td>
+                <td>${catLabel[r.child_category] || r.child_category || ''}</td>
+                <td>${r.quantity !== null && r.quantity !== undefined ? r.quantity : ''}</td>
+                ${EDITABLE ? `<td class="text-nowrap">
+                    <button class="btn btn-sm btn-outline-primary py-0 px-1" title="编辑" onclick='openEditByRow(${JSON.stringify(r)})'><i class="fas fa-pen"></i></button>
+                    <button class="btn btn-sm btn-outline-danger py-0 px-1 ms-1" title="删除" onclick='askDeleteRow(${JSON.stringify({id: r.id})})'><i class="fas fa-trash"></i></button>
+                </td>` : ''}
+            </tr>
+        `).join('');
+    }
+    renderTablePagination(total, totalPages);
+}
+
+function renderTablePagination(total, totalPages) {
+    const el = document.getElementById('tablePagination');
+    let html = `<span class="text-muted small me-3">共 ${total} 条，第 ${tablePage}/${totalPages} 页</span>`;
+    html += `<button class="page-btn" data-page="prev" ${tablePage <= 1 ? 'disabled' : ''}>◀</button>`;
+    const start = Math.max(1, tablePage - 2);
+    const end = Math.min(totalPages, start + 4);
+    for (let i = start; i <= end; i++) {
+        html += `<button class="page-btn ${i === tablePage ? 'active' : ''}" data-page="${i}">${i}</button>`;
+    }
+    html += `<button class="page-btn" data-page="next" ${tablePage >= totalPages ? 'disabled' : ''}>▶</button>`;
+    html += `<select class="form-select form-select-sm ms-2" style="width:auto;" id="tablePageSize">
+        <option value="20" ${tablePageSize===20?'selected':''}>20条/页</option>
+        <option value="50" ${tablePageSize===50?'selected':''}>50条/页</option>
+        <option value="100" ${tablePageSize===100?'selected':''}>100条/页</option>
+    </select>`;
+    el.innerHTML = html;
+    el.querySelectorAll('.page-btn').forEach(btn => {
+        if (btn.disabled) return;
+        btn.addEventListener('click', function() {
+            const p = this.dataset.page;
+            if (p === 'prev') tablePage = Math.max(1, tablePage - 1);
+            else if (p === 'next') tablePage = Math.min(totalPages, tablePage + 1);
+            else tablePage = parseInt(p);
+            renderTable();
+        });
+    });
+    const psSel = document.getElementById('tablePageSize');
+    if (psSel) psSel.addEventListener('change', function() {
+        tablePageSize = parseInt(this.value);
+        tablePage = 1;
+        renderTable();
+    });
+}
+
+// ---------- 视图2：树形 ----------
+function buildTreeHtml(nodes, depth = 0) {
+    if (!nodes || nodes.length === 0) return '';
+    let html = '<ul class="bom-tree-list">';
+    for (const n of nodes) {
+        const hasChildren = n.children && n.children.length > 0;
+        const catBadge = {
+            PRODUCT: '<span class="badge bg-primary">产品</span>',
+            SEMI: '<span class="badge bg-info text-dark">自制件</span>',
+            RAW: '<span class="badge bg-success">原材料</span>',
+        }[n.category] || '';
+        const indent = depth * 20;
+        // 数量显示：顶层节点不显示用量，子节点显示 ×数量
+        const qtyLabel = (depth > 0 && n.quantity != null) ? `<span class="text-warning fw-bold">×${n.quantity}</span>` : '';
+        html += `<li class="bom-tree-node" data-code="${n.code}" data-name="${(n.name||'').toLowerCase()}">
+            <div class="bom-node-row d-flex align-items-center py-1" style="padding-left:${indent}px;">
+                <i class="fas ${hasChildren ? 'fa-caret-right bom-toggle' : 'fa-circle text-muted'}"
+                   style="font-size:${hasChildren ? '0.9rem' : '0.4rem'};"
+                   ${hasChildren ? `onclick="toggleTreeNode(this)"` : ''}></i>
+                <span class="fw-bold ms-1">${n.code}</span>
+                <span class="text-muted ms-2">${n.name || ''}</span>
+                ${catBadge ? `<span class="ms-2">${catBadge}</span>` : ''}
+                ${qtyLabel ? `<span class="ms-2">${qtyLabel}</span>` : ''}
+                <span class="text-muted small ms-auto">L${n.level}</span>
+            </div>
+            <div class="bom-children" style="display:none;">${buildTreeHtml(n.children, depth + 1)}</div>
+        </li>`;
+    }
+    html += '</ul>';
+    return html;
+}
+
+let treeSearch = '';
+function renderTree() {
+    const container = document.getElementById('bomTreeContainer');
+    let tree = bomData.tree;
+    if (treeSearch) {
+        tree = filterTree(tree, treeSearch);
+    }
+    container.innerHTML = buildTreeHtml(tree) || '<p class="text-muted">无数据</p>';
+}
+
+function filterTree(nodes, query) {
+    const result = [];
+    for (const n of nodes) {
+        const code = (n.code || '').toLowerCase();
+        const name = (n.name || '').toLowerCase();
+        const matched = code.includes(query) || name.includes(query);
+        const filteredChildren = n.children ? filterTree(n.children, query) : [];
+        if (matched || filteredChildren.length > 0) {
+            result.push({...n, children: filteredChildren});
+        }
+    }
+    return result;
+}
+
+function toggleTreeNode(el) {
+    const li = el.closest('.bom-tree-node');
+    const childDiv = li.querySelector(':scope > .bom-children');
+    if (!childDiv) return;
+    const isOpen = childDiv.style.display !== 'none';
+    childDiv.style.display = isOpen ? 'none' : '';
+    el.classList.toggle('fa-caret-right');
+    el.classList.toggle('fa-caret-down');
+}
+
+document.getElementById('expandAll').addEventListener('click', () => {
+    document.querySelectorAll('#bomTreeContainer .bom-children').forEach(d => d.style.display = '');
+    document.querySelectorAll('#bomTreeContainer .bom-toggle').forEach(i => {
+        i.classList.remove('fa-caret-right');
+        i.classList.add('fa-caret-down');
+    });
+});
+document.getElementById('collapseAll').addEventListener('click', () => {
+    document.querySelectorAll('#bomTreeContainer .bom-children').forEach(d => d.style.display = 'none');
+    document.querySelectorAll('#bomTreeContainer .bom-toggle').forEach(i => {
+        i.classList.add('fa-caret-right');
+        i.classList.remove('fa-caret-down');
+    });
+});
+
+// ---------- 视图3：ECharts 图形 ----------
+function buildEchartsData(nodes) {
+    return nodes.map(n => ({
+        name: n.code,
+        value: (n.name || '') + (n.quantity != null ? ` ×${n.quantity}` : ''),
+        qty: n.quantity,
+        category: n.category,
+        itemStyle: {color: n.category === 'PRODUCT' ? '#0d6efd' :
+                           n.category === 'SEMI' ? '#17a2b8' : '#28a745'},
+        children: n.children ? buildEchartsData(n.children) : [],
+    }));
+}
+
+function renderChart() {
+    const container = document.getElementById('bomChartContainer');
+    if (!chartInstance) {
+        chartInstance = echarts.init(container);
+        window.addEventListener('resize', () => chartInstance.resize());
+    }
+    const orient = document.getElementById('chartOrient').value;
+    // 用虚拟根节点包裹所有产品，确保6个产品同时显示
+    const virtualRoot = {
+        name: 'BOM',
+        value: '',
+        symbol: 'none',
+        label: {show: false},
+        itemStyle: {color: 'transparent'},
+        children: buildEchartsData(bomData.tree),
+    };
+    const option = {
+        tooltip: {
+            trigger: 'item',
+            formatter: function(p) {
+                if (!p.data || p.data.name === 'BOM') return '';
+                const qty = p.data.qty != null ? `×${p.data.qty}` : '';
+                return `<b>${p.data.name}</b><br/>${p.data.value || ''} ${qty}`;
+            }
+        },
+        series: [{
+            type: 'tree',
+            data: [virtualRoot],
+            top: '5%',
+            left: '10%',
+            bottom: '5%',
+            right: '15%',
+            layout: 'orthogonal',
+            orient: orient,
+            symbolSize: 8,
+            label: {
+                position: orient === 'LR' ? 'left' : 'top',
+                fontSize: 11,
+                formatter: function(p) {
+                    if (!p.data || p.data.name === 'BOM') return '';
+                    const name = p.data.name;
+                    const qty = p.data.qty != null ? `×${p.data.qty}` : '';
+                    const label = name.length > 16 ? name.substring(0, 14) + '…' : name;
+                    return label + (qty ? ` ${qty}` : '');
+                }
+            },
+            leaves: {
+                label: {position: orient === 'LR' ? 'right' : 'bottom', fontSize: 11}
+            },
+            emphasis: {focus: 'descendant'},
+            expandAndCollapse: true,
+            animationDuration: 300,
+            initialTreeDepth: 2,
+        }]
+    };
+    chartInstance.setOption(option, true);
+}
+
+document.getElementById('chartOrient').addEventListener('change', renderChart);
+
+// ---------- 搜索 ----------
+let searchTimer;
+document.getElementById('searchInput').addEventListener('input', function() {
+    clearTimeout(searchTimer);
+    const q = this.value.trim();
+    searchTimer = setTimeout(() => {
+        tableSearch = q.toLowerCase();
+        treeSearch = q.toLowerCase();
+        tablePage = 1;
+        if (currentMode === 'table') renderTable();
+        else if (currentMode === 'tree') renderTree();
+    }, 300);
+});
+
+// ---------- 导出CSV ----------
+document.getElementById('exportBtn').addEventListener('click', () => {
+    const headers = ['ID', 'BOM层级', '父物料代码', '父物料名称', '子物料代码', '子物料名称', '子物料类型', '单位用量'];
+    const catLabel = {PRODUCT: '产品', SEMI: '自制件', RAW: '原材料'};
+    const rows = bomData.flat.map(r => [
+        r.id || '', r.bom_level, r.parent_code, r.parent_name || '', r.child_code,
+        r.child_name || '', catLabel[r.child_category] || r.child_category || '', r.quantity
+    ]);
+    const csv = [headers, ...rows].map(row =>
+        row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')
+    ).join('\n');
+    const blob = new Blob(['\ufeff' + csv], {type: 'text/csv;charset=utf-8;'});
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'BOM清单.csv';
+    link.click();
+    URL.revokeObjectURL(link.href);
+});
+
+// ---------- 新增/编辑/删除 ----------
+{% if editable_config %}
+const editModalEl = document.getElementById('editModal');
+
+function fieldInput(col, val) {
+    const v = (val === null || val === undefined) ? '' : val;
+    const req = col.required ? ' <span class="text-danger">*</span>' : '';
+    let ctl;
+    if (col.type === 'select') {
+        ctl = `<select class="form-select form-select-sm" data-fname="${col.name}">` +
+            (col.required ? '' : '<option value=""></option>') +
+            col.options.map(o => `<option value="${o[0]}" ${String(o[0]) === String(v) ? 'selected' : ''}>${o[0]}（${o[1]}）</option>`).join('') +
+            '</select>';
+    } else {
+        ctl = `<input type="${col.type === 'number' || col.type === 'int' ? 'number' : 'text'}" step="any"
+                 class="form-control form-control-sm" data-fname="${col.name}" value="${v}">`;
+    }
+    return `<div class="col-md-4 col-lg-3"><label class="form-label small fw-bold mb-1">${col.zh}${req}</label>${ctl}</div>`;
+}
+
+function openModal(mode, row) {
+    editMode = mode;
+    editPk = mode === 'update' ? {id: row.id} : null;
+    document.getElementById('editModalTitle').textContent =
+        mode === 'update' ? `编辑记录 - ${EDITABLE.label}` : `新增记录 - ${EDITABLE.label}`;
+    let html = '';
+    for (const col of EDITABLE.columns) {
+        if (mode === 'create' && col.auto) continue;
+        if (mode === 'update' && EDITABLE.pk.includes(col.name)) {
+            const v = row[col.name];
+            html += `<div class="col-md-4 col-lg-3"><label class="form-label small fw-bold mb-1">${col.zh}（主键，不可改）</label>
+                     <input type="text" class="form-control form-control-sm" value="${v ?? ''}" disabled></div>`;
+        } else {
+            html += fieldInput(col, mode === 'update' ? row[col.name] : '');
+        }
+    }
+    document.getElementById('editForm').innerHTML = html;
+    document.getElementById('editMsg').innerHTML = '';
+    bsModal = bsModal || new bootstrap.Modal(editModalEl);
+    bsModal.show();
+}
+
+async function openEditByRow(row) {
+    // 取原始行（避免枚举显示值回填）
+    const pkJson = encodeURIComponent(JSON.stringify({id: row.id}));
+    const raw = await fetch(`/api/edit/${TABLE_NAME}/row?pk=${pkJson}`).then(x => x.json());
+    openModal('update', raw);
+}
+
+function collectFields() {
+    const fields = {};
+    document.querySelectorAll('#editForm [data-fname]').forEach(el => {
+        const v = el.value.trim();
+        fields[el.dataset.fname] = v === '' ? null : v;
+    });
+    return fields;
+}
+
+document.getElementById('btnCreate').addEventListener('click', () => openModal('create', {}));
+document.getElementById('btnSaveRow').addEventListener('click', async () => {
+    const url = editMode === 'update' ? `/api/edit/${TABLE_NAME}/update` : `/api/edit/${TABLE_NAME}/create`;
+    const body = editMode === 'update' ? {pk: editPk, fields: collectFields()} : collectFields();
+    const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify(body)}).then(x => x.json());
+    const el = document.getElementById('editMsg');
+    el.innerHTML = r.ok
+        ? '<i class="fas fa-check-circle text-success"></i> ' + r.message
+        : '<i class="fas fa-times-circle text-danger"></i> ' + r.message;
+    if (r.ok) { setTimeout(() => { bsModal.hide(); loadBom(); }, 600); }
+});
+
+async function deleteByPk(pk) {
+    const r = await fetch(`/api/edit/${TABLE_NAME}/delete`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({pk: pk})
+    }).then(x => x.json());
+    alert(r.message || (r.ok ? '已删除' : '删除失败'));
+    if (r.ok) loadBom();
+}
+
+function askDeleteRow(pk) {
+    if (!confirm('确认删除该记录？删除后立即对排产生效，且不可恢复。')) return;
+    deleteByPk(pk);
+}
+{% endif %}
+
+// ---------- 初始化 ----------
+loadBom();
+</script>
+<style>
+.bom-tree-list { list-style: none; padding-left: 0; margin: 0; }
+.bom-tree-list ul { list-style: none; padding-left: 0; margin: 0; }
+.bom-tree-node > .bom-node-row { border-bottom: 1px solid #f0f0f0; }
+.bom-tree-node > .bom-node-row:hover { background-color: #f8f9fa; cursor: default; }
+.bom-toggle { cursor: pointer; color: #6c757d; width: 14px; }
+
+/* 表基本信息浮层 */
+.info-btn-wrapper { position: relative; display: inline-flex; align-items: center; cursor: pointer; }
+.info-btn-wrapper > i { transition: color 0.2s; }
+.info-btn-wrapper:hover > i { color: #0a58ca; }
+.info-popover {
+    position: absolute; top: calc(100% + 8px); right: 0;
+    background: #fff; border: 1px solid #dee2e6; border-radius: 10px;
+    padding: 14px 18px; box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+    min-width: 240px; z-index: 1060;
+    opacity: 0; visibility: hidden; transform: translateY(-6px);
+    transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s;
+    pointer-events: none;
+}
+.info-btn-wrapper:hover .info-popover {
+    opacity: 1; visibility: visible; transform: translateY(0); pointer-events: auto;
+}
+.info-popover-title {
+    font-weight: 600; font-size: 0.9rem; color: #212529;
+    padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid #eee;
+}
+.info-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 3px 0; font-size: 0.85rem;
+}
+.info-label { color: #6c757d; }
+.info-value { font-weight: 600; color: #212529; }
+</style>
+{% endblock %}

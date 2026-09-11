@@ -1,23 +1,35 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h1><i class="fas fa-table"></i> {{ table_label }}</h1>
-    <a href="{{ back_url }}" class="btn btn-outline-secondary"><i class="fas fa-arrow-left"></i> 返回总览</a>
-</div>
-
-<div class="row mb-4">
-    <div class="col-md-3">
-        <div class="metric-card"><div class="metric-value">{{ total }}</div><div class="metric-label">记录总数</div></div>
-    </div>
-    <div class="col-md-3">
-        <div class="metric-card"><div class="metric-value">{{ columns|length }}</div><div class="metric-label">字段数</div></div>
-    </div>
-    <div class="col-md-3">
-        <div class="metric-card"><div class="metric-value">{{ page }}/{{ total_pages }}</div><div class="metric-label">当前页/总页数</div></div>
-    </div>
-    <div class="col-md-3">
-        <div class="metric-card"><div class="metric-value" style="font-size: 1rem;">{{ table_name }}</div><div class="metric-label">数据库表名</div></div>
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h4><i class="fas fa-table text-primary"></i> {{ table_label }}
+        <small class="text-muted">数据管理</small>
+    </h4>
+    <div class="d-flex align-items-center gap-2">
+        <a href="{{ back_url }}" class="btn btn-outline-secondary btn-sm"><i class="fas fa-arrow-left"></i> 返回总览</a>
+        <!-- 表基本信息：hover 浮层 -->
+        <div class="info-btn-wrapper" title="查看表基本信息">
+            <i class="fas fa-info-circle text-primary fs-5"></i>
+            <div class="info-popover">
+                <div class="info-popover-title">{{ table_label }} 基本信息</div>
+                <div class="info-row">
+                    <span class="info-label">数据库表名</span>
+                    <span class="info-value" style="font-size:0.8rem;">{{ table_name }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">字段数量</span>
+                    <span class="info-value">{{ columns|length }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">记录总数</span>
+                    <span class="info-value" id="infoTotal">{{ total }}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">当前页/总页数</span>
+                    <span class="info-value" id="infoPage">{{ page }}/{{ total_pages }}</span>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -28,7 +40,6 @@
 </div>
 {% endif %}
 
-<h2 class="mb-3">数据列表</h2>
 <div class="d-flex gap-2 align-items-center flex-wrap mb-3">
     <input type="text" id="searchInput" class="form-control form-control-sm" style="width: 250px;"
            placeholder="🔍 搜索所有列..." value="{{ search }}">
@@ -204,6 +215,10 @@ function renderTable(data) {
 
     document.getElementById('tableInfo').textContent =
         `共 ${data.total} 条，第 ${data.page}/${data.total_pages} 页`;
+    const infoT = document.getElementById('infoTotal');
+    const infoP = document.getElementById('infoPage');
+    if (infoT) infoT.textContent = data.total;
+    if (infoP) infoP.textContent = `${data.page}/${data.total_pages}`;
 
     renderPagination(data.total_pages, data.page);
     updateSortIcons();
@@ -366,4 +381,32 @@ async function askDeletePk(pk) {
 }
 {% endif %}
 </script>
+<style>
+/* 表基本信息浮层（通用表格页） */
+.info-btn-wrapper { position: relative; display: inline-flex; align-items: center; cursor: pointer; }
+.info-btn-wrapper > i { transition: color 0.2s; }
+.info-btn-wrapper:hover > i { color: #0a58ca; }
+.info-popover {
+    position: absolute; top: calc(100% + 8px); right: 0;
+    background: #fff; border: 1px solid #dee2e6; border-radius: 10px;
+    padding: 14px 18px; box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+    min-width: 220px; z-index: 1060;
+    opacity: 0; visibility: hidden; transform: translateY(-6px);
+    transition: opacity 0.18s ease, transform 0.18s ease, visibility 0.18s;
+    pointer-events: none;
+}
+.info-btn-wrapper:hover .info-popover {
+    opacity: 1; visibility: visible; transform: translateY(0); pointer-events: auto;
+}
+.info-popover-title {
+    font-weight: 600; font-size: 0.9rem; color: #212529;
+    padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid #eee;
+}
+.info-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 3px 0; font-size: 0.85rem;
+}
+.info-label { color: #6c757d; }
+.info-value { font-weight: 600; color: #212529; }
+</style>
 {% endblock %}
