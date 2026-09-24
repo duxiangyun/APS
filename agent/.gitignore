@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.env
+.venv/
+data/llm_config.json
+data/*.db
+logs/

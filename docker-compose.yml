@@ -1,0 +1,58 @@
+services:
+  # ---------- APS 智能排产系统（原系统，功能与端口不变） ----------
+  aps:
+    build: ./aps
+    container_name: aps
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./aps/data/db:/app/data/db        # SQLite 数据库持久化
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/open/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  # ---------- Web Agent 后端（通过 HTTP 调用 aps /open/*） ----------
+  agent:
+    build: ./agent
+    container_name: aps-agent
+    ports:
+      - "8100:8100"
+    environment:
+      APS_BASE_URL: http://aps:8000
+      # LLM 可选配置（不配置则降级模式）
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+    depends_on:
+      aps:
+        condition: service_healthy
+
+  # ---------- Web Agent 前端（开发服务器模式） ----------
+  web:
+    image: node:20-alpine
+    container_name: aps-web
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    environment:
+      # 浏览器侧走相对路径 /agent，由 vite 开发服务器代理转发到容器内 agent
+      VITE_AGENT_BASE_URL: /agent
+      VITE_PROXY_TARGET: http://agent:8100
+      # 国内网络加速（可按需删除）
+      npm_config_registry: https://registry.npmmirror.com
+    volumes:
+      - ./web:/app
+      - web_node_modules:/app/node_modules
+    depends_on:
+      - agent
+
+volumes:
+  web_node_modules:

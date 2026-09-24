@@ -8,15 +8,18 @@ __pycache__/
 # Database files - keep aps_or.db (main SQLite database)
 aps_model.db
 *.sqbpro
-!data/db/aps_or.db
+!aps/data/db/aps_or.db
 
 # Runtime artifacts
-aps_server.log
-aps_server.pid
+aps/aps_server.log
+aps/aps_server.pid
 *.log.tmp
 
+# LLM credentials / runtime config（含真实密钥，仅本地保留）
+aps/data/agent_config.json
+
 # Result Excel files are regenerated per run
-data/output/
+aps/data/output/
 
 # Archived legacy code (kept locally only)
 archive/
