@@ -45,10 +45,8 @@ services:
 
   # ---------- Web Agent 前端（开发服务器模式） ----------
   web:
-    image: node:20-alpine
+    build: ./web
     container_name: aps-web
-    working_dir: /app
-    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
     ports:
       - "5173:5173"
     environment:
