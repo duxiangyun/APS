@@ -1,0 +1,24 @@
+/* ==========================================================================
+   共用 design tokens（顶部统一壳 + 内容区两边复用）
+   引入顺序：须在 styles.css 之前（见 main.tsx）
+   ========================================================================== */
+:root {
+  /* ---- 顶部统一壳 ---- */
+  --topbar-height: 56px;
+  --topbar-bg: #1e40af;
+  --topbar-text: #ffffff;
+  --topbar-padding-x: 20px;
+  --topbar-gap: 16px;
+
+  /* ---- Tab ---- */
+  --tab-active-bg: #3b82f6;
+  --tab-active-text: #ffffff;
+  --tab-inactive-text: rgba(255, 255, 255, 0.7);
+  --tab-hover-bg: rgba(255, 255, 255, 0.12);
+  --tab-padding-x: 20px;
+  --tab-font-size: 14px;
+
+  /* ---- 内容区切换过渡 ---- */
+  --pane-fade-duration: 0.2s;
+  --pane-fade-timing: ease;
+}

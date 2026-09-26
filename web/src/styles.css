@@ -1,5 +1,6 @@
 /* ==========================================================================
    APS WorkBuddy 三栏工作台样式（简洁、留白合理、无花哨动画）
+   顶部统一壳的 tokens 见 design-tokens.css（须先于本文件引入）
    ========================================================================== */
 :root {
   --border: #e5e7eb;
@@ -23,6 +24,181 @@ body {
 }
 
 .muted { color: var(--muted); font-size: 12px; }
+/* ------------------------------ 统一入口壳（顶部 Tab） ------------------------------ */
+.app-shell {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.topbar {
+  flex: 0 0 var(--topbar-height);
+  height: var(--topbar-height);
+  display: flex;
+  align-items: stretch;
+  background: var(--topbar-bg);
+  color: var(--topbar-text);
+  font-size: 14px;
+  user-select: none;
+}
+
+.topbar-zone { display: flex; align-items: center; }
+.topbar-left { flex: 1 1 0; gap: 8px; padding-left: var(--topbar-padding-x); min-width: 0; }
+.topbar-right { flex: 1 1 0; padding-right: var(--topbar-padding-x); justify-content: flex-end; }
+
+.topbar-logo { flex: none; display: block; height: 36px; width: auto; }
+.topbar-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.topbar-tabs { flex: none; gap: 4px; }
+
+.topbar-tab {
+  height: var(--topbar-height);
+  padding: 0 var(--tab-padding-x);
+  border: none;
+  background: transparent;
+  color: var(--tab-inactive-text);
+  font-family: inherit;
+  font-size: var(--tab-font-size);
+  font-weight: 400;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+.topbar-tab:hover { color: #fff; background: var(--tab-hover-bg); }
+.topbar-tab.active {
+  background: var(--tab-active-bg);
+  color: var(--tab-active-text);
+  font-weight: 700;
+}
+/* 顶栏右侧系统入口下拉按钮 */
+.topbar-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 100px;
+  justify-content: center;
+  height: 40px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--topbar-text);
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+.topbar-user:hover { background: rgba(255, 255, 255, 0.1); }
+.topbar-user-arrow { font-size: 11px; opacity: 0.8; }
+
+.sys-menu-role { font-size: 13px; }
+
+/* 切换角色小面板 */
+.role-pick { display: flex; flex-direction: column; gap: 8px; }
+.role-pick-item {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  grid-template-areas: "label key current" "desc desc desc";
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 2px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+.role-pick-item:hover { border-color: var(--primary); background: var(--bg-soft); }
+.role-pick-item.active { border-color: var(--primary); background: #eff6ff; }
+.role-pick-label { grid-area: label; font-size: 13px; font-weight: 600; color: var(--text); }
+.role-pick-key {
+  grid-area: key;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--bg);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.role-pick-current {
+  grid-area: current;
+  justify-self: end;
+  font-size: 11px;
+  color: var(--primary);
+  font-weight: 600;
+}
+.role-pick-desc { grid-area: desc; font-size: 11px; color: var(--muted); }
+
+/* 技能抽屉 */
+.skills-drawer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.skills-drawer-section { margin-top: 12px; }
+.skills-drawer-title { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+.skill-card {
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+.skill-card.diff { border-color: #f59e0b; background: #fffbeb; }
+.skill-card-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.skill-card-name { font-size: 12px; font-weight: 600; color: var(--text); }
+.skill-card-desc { font-size: 12px; color: var(--text); margin-top: 4px; line-height: 1.6; }
+.skill-card-params { font-size: 11px; color: var(--muted); margin-top: 4px; word-break: break-all; }
+
+/* LLM 只读信息 */
+.llm-status-line { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.llm-info-foot { margin-top: 12px; font-size: 12px; color: var(--muted); }
+
+
+
+/* 内容区：两块 pane 常驻挂载，仅靠行内 display 切换显隐 */
+.app-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  background: var(--bg);
+}
+
+/* display 切回时 CSS 动画重新触发 → 淡入；opacity transition 0.2s ease 兜底 */
+.pane {
+  width: 100%;
+  height: calc(100vh - var(--topbar-height));
+  opacity: 1;
+  transition: opacity var(--pane-fade-duration) var(--pane-fade-timing);
+  animation: pane-fade-in var(--pane-fade-duration) var(--pane-fade-timing);
+}
+@keyframes pane-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.aps-frame {
+  display: block;
+  width: 100%;
+  height: calc(100vh - var(--topbar-height));
+  border: none;
+}
+
+/* Agent 工作台装进内容区：高度跟随 pane 而非 100vh */
+.app-content .workbench { height: 100%; }
+
+
 
 /* ------------------------------ 布局 ------------------------------ */
 .workbench { height: 100vh; background: var(--bg); }

@@ -3,7 +3,8 @@
 // ---------------------------------------------------------------------------
 // 角色（前端状态模拟，不做登录）
 // ---------------------------------------------------------------------------
-export type RoleKey = "planner" | "supervisor" | "manager" | "admin";
+export type RoleKey = "planner" | "supervisor" | "manager" | "analyst"
+  | "purchaser" | "admin" | "default";
 
 export interface RoleOption {
   key: RoleKey;
@@ -17,7 +18,10 @@ export const ROLES: RoleOption[] = [
   { key: "planner", label: "计划员", desc: "关注订单交付与排产细节", agentRole: "planner" },
   { key: "supervisor", label: "主管", desc: "关注产能负荷与瓶颈异常", agentRole: "supervisor" },
   { key: "manager", label: "经理", desc: "关注 KPI、准交率与利润", agentRole: "manager" },
+  { key: "analyst", label: "数据分析师", desc: "用数据定位延期与瓶颈原因", agentRole: "analyst" },
+  { key: "purchaser", label: "采购员", desc: "关注物料齐套、到料时间与供应风险", agentRole: "purchaser" },
   { key: "admin", label: "管理员", desc: "系统巡检、数据核对与审计", agentRole: "admin" },
+  { key: "default", label: "通用助手", desc: "通用问答，仅开放 KPI 查询", agentRole: "default" },
 ];
 
 // ---------------------------------------------------------------------------

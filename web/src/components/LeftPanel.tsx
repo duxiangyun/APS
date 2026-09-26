@@ -58,7 +58,7 @@ export default function LeftPanel({ wb }: { wb: Workbench }) {
           vertical
           block
           value={wb.role}
-          onChange={(value) => wb.setRole(value as RoleKey)}
+          onChange={(value) => wb.switchRole(value as RoleKey)}
           options={ROLES.map((r) => ({ label: r.label, value: r.key }))}
         />
         <div className="role-desc">{ROLES.find((r) => r.key === wb.role)?.desc}</div>
@@ -158,7 +158,7 @@ export default function LeftPanel({ wb }: { wb: Workbench }) {
         onClose={() => setLlmOpen(false)}
         onSaved={wb.refreshHealth}
       />
-      <AuditLogModal open={auditOpen} onClose={() => setAuditOpen(false)} />
+      <AuditLogModal open={auditOpen} onClose={() => setAuditOpen(false)} currentRole={wb.role} />
 
       <Modal
         title="设置"

@@ -4,7 +4,9 @@
  * 闭环：提问 → token 增量渲染 → 工具卡片（tool_call/tool_result）→ 图表更新（chart）
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { message } from "antd";
 import { agentApi, streamChat } from "../api";
+import { useAppShell } from "./useAppShell";
 import {
   ROLES,
   type AgentEvent,
@@ -40,7 +42,8 @@ function slotOf(chart: ChartPayload): ChartSlot {
 }
 
 export function useWorkbench() {
-  const [role, setRole] = useState<RoleKey>("planner");
+  // 角色为全局状态（与 activeTab 共用 AppShellContext），顶部栏/左侧栏共用同一份
+  const { role, setRole } = useAppShell();
   const [skills, setSkills] = useState<Skill[]>([]);
   const [skillsError, setSkillsError] = useState<string | null>(null);
   const [enabled, setEnabled] = useState<Record<string, boolean>>({});
@@ -201,6 +204,21 @@ export function useWorkbench() {
     setActiveTab("gantt");
   }, []);
 
+  /**
+   * 切换角色：更新全局 role → 触发既有 useEffect 重拉 /skills，
+   * 同时开启新会话（清空对话）并弹提示。
+   */
+  const switchRole = useCallback(
+    (next: RoleKey) => {
+      if (next === role) return;
+      setRole(next);
+      resetSession();
+      const label = ROLES.find((r) => r.key === next)?.label ?? next;
+      message.success(`已切换到 ${label} 角色，将开启新会话`);
+    },
+    [role, setRole, resetSession],
+  );
+
   const toggleSkill = useCallback((name: string, value: boolean) => {
     setEnabled((prev) => ({ ...prev, [name]: value }));
   }, []);
@@ -208,6 +226,7 @@ export function useWorkbench() {
   return {
     role,
     setRole,
+    switchRole,
     skills,
     skillsError,
     enabled,
