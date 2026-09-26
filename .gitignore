@@ -6,9 +6,17 @@ __pycache__/
 .Python
 
 # Database files - keep aps_or.db (main SQLite database)
+*.db
 aps_model.db
 *.sqbpro
 !aps/data/db/aps_or.db
+
+# Deployment（.env 含密钥、backups 含数据库副本，均不入库）
+.env
+backups/
+
+# Node
+node_modules/
 
 # Runtime artifacts
 aps/aps_server.log
