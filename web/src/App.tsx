@@ -2,7 +2,8 @@
  * 统一入口壳（第一步骨架）
  *   顶部 56px 标题栏：Logo + "APS 智能排产" | Tab「排产管理 / AI 助手」| 右侧留空
  *   内容区按 activeTab 切换：
- *     'aps'   → iframe 嵌入 APS（http://localhost:8000），display 控制显隐以保持挂载
+ *     'aps'   → iframe 嵌入 APS（相对路径 /aps，由 vite 反向代理转发到 APS 后端，
+ *               避免写死 localhost 导致部署到服务器后指向用户本机），display 控制显隐以保持挂载
  *     'agent' → 现有 Agent 三栏工作台（LeftPanel + ChatPanel + RightPanel）
  * 状态由 useAppShell（React Context）管理，默认 'aps'。
  */
@@ -15,7 +16,8 @@ import { useWorkbench } from "./hooks/useWorkbench";
 import { AppShellProvider, useAppShell, type AppTab } from "./hooks/useAppShell";
 import SystemMenu from "./components/SystemMenu";
 
-const APS_URL = "http://localhost:8000";
+/** APS 入口地址：相对路径 /aps，由 vite 代理转发到 APS_PROXY_TARGET（见 vite.config.ts） */
+const APS_URL = "/aps";
 
 const TABS: { key: AppTab; label: string }[] = [
   { key: "aps", label: "排产管理平台" },
