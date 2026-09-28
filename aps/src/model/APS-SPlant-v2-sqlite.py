@@ -31,7 +31,7 @@
 # 1、关于外协件的定义，外协件一定也是可以自行制造的自制件，模型可以选择是自制还是外协采购。如果不能自制，这样的所谓外协件应放入原材料 
 
 
-import xlrd
+# import xlrd  # 数据已全部改为从 sqlite 视图读取（readCellDB/readTableDB），不再需要 Excel 读取库
 import time
 from xlwt import *
 from collections import namedtuple,defaultdict
@@ -293,7 +293,7 @@ savepath = os.path.join(_PROJECT_DIR, 'data', 'output') + '/'
 resultFileName = 'APS-JD-sqlite-mac-result-' + time.strftime('%Y%m%d-%H%M%S') + '.xls'
 
 
-book = xlrd.open_workbook(filepath)
+# book = xlrd.open_workbook(filepath)  # 数据已全部从DB视图读取，Excel 句柄不再被使用
 
 #  读综合表信息    
 # nfixtable    = readCell('nfixtable', book, True)                          # 工装表是否存在标识
