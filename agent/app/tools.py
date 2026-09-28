@@ -1,18 +1,9 @@
-"""APS 数据工具层：12 个只读工具，全部通过 HTTP 调用 aps 的 /open/* 接口。
+"""APS 数据工具层：全部通过 HTTP 调用 aps 的 /open/* 接口。
 
-工具清单
-    get_orders        订单列表（可按交付状态 / 交期过滤）
-    get_schedule      单订单排产计划（交付点 + 设备工序甘特数据）
-    get_machine_load  设备负荷（按周期区间，负荷图数据）
-    get_bottleneck    瓶颈设备（按负荷率与影子价格排序）
-    explain_delay     订单延期归因（交期对比 + 罚金 + 冲突设备）
-    get_kpi           经营 KPI 卡片（收入 / 成本 / 利润 / 准交率）
-    get_audit_logs    审计日志查询（仅 admin 角色，见 ADMIN_ONLY_TOOLS）
-    get_system_status 系统运行状态巡检（仅 admin 角色，见 ADMIN_ONLY_TOOLS）
-    get_material_master 物料主数据台账（编码 / 名称 / 类别过滤，主数据核对用）
-    get_bom           BOM 多级展开（父件 → 逐层子件、用量、单位、层级）
-    get_routing       工艺路线（步序 → 工序 → 设备 / 产线 / 工装 / 提前期）
-    get_resource_master 设备 / 工装台账（类型、产线、数量、成本、利用率）
+工具体系（12 个只读工具）：
+- 业务只读（6 个）：订单列表、排产计划、设备负荷、瓶颈分析、延期归因、经营 KPI
+- 主数据只读（4 个）：物料主数据台账、BOM 多级展开、工艺路线、设备/工装台账
+- 管理专属（2 个）：审计日志查询、系统运行状态巡检（仅 admin 角色）
 
 约定
 - 每个工具有明确的 JSON Schema（OpenAI function calling 格式，见 TOOLS）
@@ -122,14 +113,6 @@ async def _equip_shadow_rows() -> list[dict]:
         data = await aps_client.aps_result_data("equip_shadow", page=1, page_size=_VIEW_PAGE_SIZE)
         return data.get("rows", [])
     return await _cached("equip_shadow", load)
-
-
-async def _order_meta() -> dict[int, dict]:
-    """order_id → core_biz_demand_order 主数据（含交期、优先级）"""
-    async def load() -> dict[int, dict]:
-        data = await aps_client.aps_orders(page_size=_VIEW_PAGE_SIZE)
-        return {o["order_id"]: o for o in data.get("orders", [])}
-    return await _cached("orders", load)
 
 
 # ---------------------------------------------------------------------------
