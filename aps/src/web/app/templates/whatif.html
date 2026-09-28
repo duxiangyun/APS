@@ -1,13 +1,13 @@
 {% extends "base.html" %}
 {% block content %}
 <h4><i class="fas fa-flask text-primary"></i> What-if 沙盒模拟
-    <small class="text-muted fs-6">场景命名 · 假设参数 · 沙盒求解 · 版本对比</small>
+    <small class="text-muted fs-6">场景命名 · 假设参数 · 插单 · 沙盒求解 · 版本对比</small>
 </h4>
 
 <div class="alert alert-info py-2 small mb-3">
     <i class="fas fa-info-circle"></i>
-    在沙盒中保存一套「假设参数」并运行：系统会临时覆盖全局参数完成一次沙盒求解（生成独立版本），
-    求解结束后<b>自动恢复正式参数</b>，不影响当前正式排产。沙盒结果可在「计划版本 → 方案对比」中与基线版本对比 11 项 KPI。
+    在沙盒中保存一套「假设参数 / 插单」并运行：系统会临时覆盖全局参数、临时注入插单订单完成一次沙盒求解（生成独立版本），
+    求解结束后<b>自动恢复正式参数与订单表</b>，不影响当前正式排产。沙盒结果可在「计划版本 → 方案对比」中与基线版本对比 11 项 KPI。
     <span class="text-muted">求解运行期间参数配置页临时锁定。</span>
 </div>
 
@@ -21,7 +21,7 @@
 {% if not scenarios %}
 <div class="text-center text-muted py-5 border rounded bg-light">
     <i class="fas fa-flask fa-2x mb-2"></i>
-    <div>暂无模拟场景。点击「新建场景」设置一组假设参数（如：延期罚金权重 ×5、关闭外协…），运行后与基线对比。</div>
+    <div>暂无模拟场景。点击「新建场景」设置一组假设参数（如：延期罚金权重 ×5、关闭外协…）或插入几张临时订单，运行后与基线对比。</div>
 </div>
 {% endif %}
 
@@ -48,7 +48,44 @@
                     {% for k, v in (sc.overrides or {}).items() %}
                     <span class="badge bg-light text-dark border me-1 mb-1" style="font-weight:normal">{{ k }} = {{ v }}</span>
                     {% endfor %}
+                    {% if sc.orders %}
+                    <span class="badge bg-info-subtle text-info-emphasis border border-info me-1 mb-1" style="font-weight:normal"
+                          title="该场景运行时会临时注入这些订单，求解结束后自动删除">
+                        <i class="fas fa-file-circle-plus"></i> 含 {{ sc.orders|length }} 张插单
+                    </span>
+                    {% endif %}
                 </div>
+                {% if sc.orders %}
+                <details class="mb-2">
+                    <summary class="text-muted" style="font-size:.75rem;cursor:pointer">展开插单明细（{{ sc.orders|length }} 条）</summary>
+                    <div class="table-container mt-1">
+                        <table class="table table-sm table-borderless mb-0" style="font-size:.75rem">
+                            <thead class="text-muted">
+                                <tr><th>产品</th><th class="text-end">数量</th><th class="text-end">交期</th>
+                                    <th class="text-end">等级</th><th class="text-end">允许延期</th><th class="text-end">延期罚金</th></tr>
+                            </thead>
+                            <tbody>
+                                {% for o in sc.orders %}
+                                <tr>
+                                    <td class="text-truncate" style="max-width:130px" title="{{ o.product_code }}">{{ o.product_code }}</td>
+                                    <td class="text-end">{{ o.quantity }}</td>
+                                    <td class="text-end">{{ o.due_period }}</td>
+                                    <td class="text-end">{{ o.priority_level }}</td>
+                                    <td class="text-end">{{ o.max_delay_allowed }}</td>
+                                    <td class="text-end">{{ o.delay_penalty }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </details>
+                {% endif %}
+                {% if sc.orders and sc.run_id %}
+                <div class="text-muted mb-2" style="font-size:.72rem">
+                    <i class="fas fa-circle-info"></i>
+                    插单订单的交付结果已随沙盒版本 #{{ sc.run_id }} 存档（结果视图按「当前订单表」关联，故不直接列出已删除的插单行）。
+                </div>
+                {% endif %}
                 <div class="text-muted" style="font-size:.75rem">
                     创建：{{ sc.created_at }}
                     {% if sc.run_id %}
@@ -59,12 +96,14 @@
             </div>
             <div class="card-footer py-2 d-flex gap-2">
                 <button class="btn btn-sm btn-primary btn-run" data-sid="{{ sc.id }}"
+                        data-orders="{{ 1 if sc.orders else 0 }}"
                         {{ 'disabled' if sc.status == 'running' else '' }}>
                     <i class="fas fa-play"></i> 运行
                 </button>
                 <button class="btn btn-sm btn-outline-secondary btn-edit" data-sid="{{ sc.id }}"
                         data-name="{{ sc.name }}" data-desc="{{ sc.description or '' }}"
                         data-overrides='{{ (sc.overrides or {})|tojson }}'
+                        data-orders='{{ (sc.orders or [])|tojson }}'
                         {{ 'disabled' if sc.status == 'running' else '' }}>
                     <i class="fas fa-pen"></i> 编辑
                 </button>
@@ -105,6 +144,22 @@
             <input type="text" class="form-control form-control-sm" id="scDesc" placeholder="假设的业务背景与预期（可选）">
           </div>
         </div>
+        <ul class="nav nav-tabs mb-3" id="scTabs" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="tabBtnParams" data-bs-toggle="tab" data-bs-target="#tabParams"
+                    type="button" role="tab" aria-controls="tabParams" aria-selected="true">
+              <i class="fas fa-sliders-h"></i> 假设参数 <span class="badge bg-secondary" id="tabParamsCount">0</span>
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tabBtnOrders" data-bs-toggle="tab" data-bs-target="#tabOrders"
+                    type="button" role="tab" aria-controls="tabOrders" aria-selected="false">
+              <i class="fas fa-file-circle-plus"></i> 插单 <span class="badge bg-secondary" id="tabOrdersCount">0</span>
+            </button>
+          </li>
+        </ul>
+        <div class="tab-content">
+        <div class="tab-pane fade show active" id="tabParams" role="tabpanel" aria-labelledby="tabBtnParams">
         <div class="alert alert-light border py-2 small mb-3">
             仅填写需要<b>假设</b>的参数（留空 = 沿用当前正式值）。「当前值」为正式参数值，仅作参考。
         </div>
@@ -134,6 +189,43 @@
             </div>
         </div>
         {% endfor %}
+        </div>{# /tabParams #}
+        <div class="tab-pane fade" id="tabOrders" role="tabpanel" aria-labelledby="tabBtnOrders">
+          <div class="alert alert-light border py-2 small mb-3">
+            插单 = 本次沙盒求解<b>临时新增</b>的需求订单：运行期间注入订单表并同步订单数，<b>求解结束后自动删除</b>，正式订单与参数不受影响。
+            单场景上限 <b class="order-max">20</b> 条；产品代码须为产品类物料（<span id="orderProductHint" class="text-muted">产品库加载中…</span>）；数量 &gt; 0；
+            交期 1~<b id="bndPeriod">-</b>、订单等级 1~<b id="bndCls">-</b>、允许延期 0~<b id="bndDelay">-</b>（按当前正式参数）、延期罚金 ≥ 0。
+            <span class="text-muted">订单单价缺省取产品标准售价。</span>
+          </div>
+          <div class="table-container">
+            <table class="table table-sm align-middle mb-2">
+              <thead class="table-light">
+                <tr>
+                  <th style="min-width:230px">产品代码 <span class="text-danger">*</span></th>
+                  <th style="width:110px">数量 <span class="text-danger">*</span></th>
+                  <th style="width:110px">交期（期）<span class="text-danger">*</span></th>
+                  <th style="width:110px">订单等级 <span class="text-danger">*</span></th>
+                  <th style="width:120px">允许延期 <span class="text-danger">*</span></th>
+                  <th style="width:120px">延期罚金 <span class="text-danger">*</span></th>
+                  <th style="width:48px"></th>
+                </tr>
+              </thead>
+              <tbody id="orderRows"></tbody>
+            </table>
+          </div>
+          <div class="text-center text-muted small py-3 border rounded bg-light" id="orderEmpty">
+            尚未添加插单。点击下方「+ 添加订单」新增一条临时订单。
+          </div>
+          <div class="d-flex align-items-center gap-3 mt-2">
+            <button type="button" class="btn btn-sm btn-outline-primary" id="btnAddOrder">
+              <i class="fas fa-plus"></i> 添加订单
+            </button>
+            <span class="text-muted small">插单条数：<span id="orderCount">0</span> / <span class="order-max">20</span></span>
+            <span class="small ms-auto" id="orderHint"></span>
+          </div>
+          <datalist id="dlProducts"></datalist>
+        </div>{# /tabOrders #}
+        </div>{# /tab-content #}
       </div>
       <div class="modal-footer py-2">
         <span id="scMsg" class="me-auto small"></span>
@@ -147,6 +239,11 @@
 
 {% block extra_js %}
 <script>
+// API 基址。必须写成「常量赋值给根绝对路径字面量」的形式：web 端 vite 的 iframe 路径改写
+// （web/vite.config.ts rewriteHtmlPaths）只会给这种写法补上 '/aps' 同源代理前缀（→ '/aps/api'），
+// 因此拼接一律走 API_BASE，切勿把 '/api/...' 放进变量后再 fetch(url)——那不会被改写，
+// 在 iframe 内会命中 vite 自身的「/api → agent」代理规则，返回 404 {"detail":"Not Found"}。
+const API_BASE = '/api';
 let editSid = null;      // null=新建
 let pollSid = null, timer = null;
 
@@ -157,6 +254,115 @@ function collectOverrides() {
         if (v !== '') payload[el.dataset.wifKey] = v;
     });
     return payload;
+}
+
+// ==================== 插单（Tab 2） ====================
+const ORDER_MAX = 20;                  // 与后端 whatif_service._ORDER_MAX 保持一致
+const ORDER_FIELDS = ['product_code', 'quantity', 'due_period', 'priority_level',
+                      'max_delay_allowed', 'delay_penalty'];
+const ORDER_NUM_FIELDS = ['quantity', 'due_period', 'priority_level',
+                          'max_delay_allowed', 'delay_penalty'];
+const ORDER_BOUND_DEFAULTS = {PLAN_HORIZON: 12, ORDER_PRIORITY_LEVELS: 3, MAX_DELAY_ALLOWED: 0};
+let PARAMS = {};                       // /api/params 兜底缓存（key → 当前正式值）
+
+// 上限取「假设参数」页签渲染的当前正式值（与后端校验口径一致），缺失时回退 /api/params、再回退默认值
+function wifParam(key) {
+    const el = document.querySelector('[data-wif-key="' + key + '"]');
+    const cur = el ? parseFloat(el.dataset.wifCur) : NaN;
+    if (Number.isFinite(cur)) return cur;
+    const v = parseFloat(PARAMS[key]);
+    if (Number.isFinite(v)) return v;
+    return ORDER_BOUND_DEFAULTS[key];
+}
+
+function renderOrderBounds() {
+    const p = wifParam('PLAN_HORIZON'), c = wifParam('ORDER_PRIORITY_LEVELS'), d = wifParam('MAX_DELAY_ALLOWED');
+    document.getElementById('bndPeriod').textContent = p;
+    document.getElementById('bndCls').textContent = c;
+    document.getElementById('bndDelay').textContent = d;
+    orderRows().forEach(tr => {
+        setMax(tr, 'due_period', p);
+        setMax(tr, 'priority_level', c);
+        setMax(tr, 'max_delay_allowed', d);
+    });
+}
+
+function setMax(tr, field, max) {
+    const el = tr.querySelector('[data-f="' + field + '"]');
+    if (el) el.max = max;
+}
+
+function setVal(tr, field, value) {
+    const el = tr.querySelector('[data-f="' + field + '"]');
+    if (el) el.value = (value === null || value === undefined) ? '' : value;
+}
+
+function orderRows() {
+    return Array.from(document.querySelectorAll('#orderRows tr'));
+}
+
+function addOrderRow(o) {
+    const tbody = document.getElementById('orderRows');
+    if (tbody.children.length >= ORDER_MAX) return false;
+    const p = wifParam('PLAN_HORIZON'), c = wifParam('ORDER_PRIORITY_LEVELS'), d = wifParam('MAX_DELAY_ALLOWED');
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+        '<td><input class="form-control form-control-sm" list="dlProducts" data-f="product_code"' +
+        ' placeholder="选择或输入产品代码"></td>' +
+        '<td><input type="number" step="any" min="0" class="form-control form-control-sm" data-f="quantity" placeholder="&gt; 0"></td>' +
+        '<td><input type="number" step="1" min="1" max="' + p + '" class="form-control form-control-sm" data-f="due_period" placeholder="1~' + p + '"></td>' +
+        '<td><input type="number" step="1" min="1" max="' + c + '" class="form-control form-control-sm" data-f="priority_level" placeholder="1~' + c + '"></td>' +
+        '<td><input type="number" step="1" min="0" max="' + d + '" class="form-control form-control-sm" data-f="max_delay_allowed" placeholder="0~' + d + '"></td>' +
+        '<td><input type="number" step="any" min="0" class="form-control form-control-sm" data-f="delay_penalty" placeholder="≥ 0"></td>' +
+        '<td class="text-end"><button type="button" class="btn btn-sm btn-outline-danger btn-del-order"' +
+        ' title="删除该行"><i class="fas fa-times"></i></button></td>';
+    tbody.appendChild(tr);
+    // 默认值均落在合法区间内（交期=1、等级=1、允许延期=0、罚金=100），便于快速填写
+    setVal(tr, 'product_code', o ? o.product_code : '');
+    setVal(tr, 'quantity', o ? o.quantity : '');
+    setVal(tr, 'due_period', o ? o.due_period : 1);
+    setVal(tr, 'priority_level', o ? o.priority_level : 1);
+    setVal(tr, 'max_delay_allowed', o ? o.max_delay_allowed : 0);
+    setVal(tr, 'delay_penalty', o ? (o.delay_penalty === undefined ? '' : o.delay_penalty) : 100);
+    tr.querySelector('.btn-del-order').addEventListener('click', () => { tr.remove(); afterOrdersChanged(); });
+    afterOrdersChanged();
+    return true;
+}
+
+// 行数 / 计数徽章 / 空态 / 上限禁用
+function afterOrdersChanged() {
+    const n = orderRows().length;
+    document.getElementById('orderCount').textContent = n;
+    document.getElementById('tabOrdersCount').textContent = n;
+    document.getElementById('orderEmpty').style.display = n ? 'none' : 'block';
+    document.getElementById('btnAddOrder').disabled = n >= ORDER_MAX;
+    document.getElementById('orderHint').innerHTML = n >= ORDER_MAX
+        ? '<span class="text-warning-emphasis"><i class="fas fa-exclamation-triangle"></i> 已达上限 ' + ORDER_MAX + ' 条，如需更多请分多个场景</span>'
+        : '';
+    renderOrderBounds();
+}
+
+function collectOrders() {
+    const out = [];
+    orderRows().forEach(tr => {
+        const o = {};
+        ORDER_FIELDS.forEach(f => {
+            o[f] = ((tr.querySelector('[data-f="' + f + '"]').value) || '').trim();
+        });
+        ORDER_NUM_FIELDS.forEach(f => { if (o[f] !== '') o[f] = Number(o[f]); });
+        out.push(o);
+    });
+    return out;      // 无插单时为空数组（后端要求 [] 而非 null）
+}
+
+// 同时收集两个页签的假设（overrides + orders）
+function collectScenario() {
+    return {overrides: collectOverrides(), orders: collectOrders()};
+}
+
+function switchTab(target) {
+    const btn = document.querySelector('#scTabs button[data-bs-target="' + target + '"]');
+    if (btn) bootstrap.Tab.getOrCreateInstance(btn).show();
 }
 
 function openModal(mode, btn) {
@@ -170,7 +376,10 @@ function openModal(mode, btn) {
             el.value = '';
         }
     });
+    document.getElementById('orderRows').innerHTML = '';       // 清空插单行
+    document.getElementById('scMsg').innerHTML = '';
     document.getElementById('scModalTitle').innerHTML = '<i class="fas fa-flask"></i> 新建场景';
+    switchTab('#tabParams');                                   // 默认选中「假设参数」
     if (mode === 'edit' && btn) {
         editSid = btn.dataset.sid;
         document.getElementById('scName').value = btn.dataset.name || '';
@@ -182,45 +391,98 @@ function openModal(mode, btn) {
             if (ov[k] !== undefined && ov[k] !== null) el.value = ov[k];
             else if (el.tagName === 'SELECT') el.value = '';
         });
+        let olist = [];                                        // 插单回显
+        try { olist = JSON.parse(btn.dataset.orders || '[]'); } catch (e) {}
+        if (!Array.isArray(olist)) olist = [];
+        olist.slice(0, ORDER_MAX).forEach(o => addOrderRow(o));
+        if (olist.length) switchTab('#tabOrders');              // 含插单时直接展示「插单」页签
         document.getElementById('scModalTitle').innerHTML = '<i class="fas fa-pen"></i> 编辑场景 #' + editSid;
     }
+    afterParamsChanged();
+    afterOrdersChanged();
     new bootstrap.Modal(document.getElementById('scModal')).show();
 }
+
+// 页签计数：已填参数条数 / 插单条数
+function afterParamsChanged() {
+    document.getElementById('tabParamsCount').textContent = Object.keys(collectOverrides()).length;
+}
+document.querySelectorAll('[data-wif-key]').forEach(el => el.addEventListener('input', afterParamsChanged));
+document.getElementById('btnAddOrder').addEventListener('click', () => addOrderRow(null));
 
 document.getElementById('btnNew').addEventListener('click', () => openModal('new'));
 document.querySelectorAll('.btn-edit').forEach(b => b.addEventListener('click', () => openModal('edit', b)));
 
 document.getElementById('btnSaveScenario').addEventListener('click', async () => {
+    const sc = collectScenario();
     const body = {
         name: document.getElementById('scName').value,
         description: document.getElementById('scDesc').value,
-        overrides: collectOverrides()
+        overrides: sc.overrides,
+        orders: sc.orders                      // 无插单时为空数组 []（不传 null）
     };
-    const url = editSid ? '/api/whatif/scenarios/' + editSid : '/api/whatif/scenarios';
-    const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'},
-                                body: JSON.stringify(body)}).then(x => x.json());
+    // 首参保持「API_BASE + 字面量」形式（切勿先存进变量再 fetch，否则 vite 改写不到）
+    const resp = await fetch(API_BASE + '/whatif/scenarios' + (editSid ? '/' + editSid : ''),
+                             {method: 'POST', headers: {'Content-Type': 'application/json'},
+                              body: JSON.stringify(body)});
+    let r = {};
+    try { r = await resp.json(); } catch (e) { r = {}; }   // 非 JSON 响应（如代理 404/502）容错
     const el = document.getElementById('scMsg');
     if (r.ok) {
         el.innerHTML = '<i class="fas fa-check-circle text-success"></i> 已保存';
         setTimeout(() => location.reload(), 500);
     } else {
-        el.innerHTML = '<i class="fas fa-times-circle text-danger"></i> ' + (r.message || '保存失败');
+        // 后端业务错误带 message；FastAPI/代理错误带 detail；都没有时回显 HTTP 状态码便于定位
+        const msg = r.message || r.detail || ('保存失败（HTTP ' + resp.status + '）');
+        el.innerHTML = '<i class="fas fa-times-circle text-danger"></i> ' + msg;
+        // 插单相关报错自动切到「插单」页签，便于定位
+        if (msg.indexOf('插单') >= 0 || msg.indexOf('产品代码') >= 0) {
+            switchTab('#tabOrders');
+        }
     }
 });
 
 document.querySelectorAll('.btn-del').forEach(b => b.addEventListener('click', async () => {
     if (!confirm('确认删除该场景？')) return;
-    const r = await fetch('/api/whatif/scenarios/' + b.dataset.sid, {method: 'DELETE'}).then(x => x.json());
+    const r = await fetch(API_BASE + '/whatif/scenarios/' + b.dataset.sid, {method: 'DELETE'}).then(x => x.json());
     if (r.ok) location.reload(); else alert(r.message || '删除失败');
 }));
 
 document.querySelectorAll('.btn-run').forEach(b => b.addEventListener('click', async () => {
-    if (!confirm('运行沙盒求解？系统将临时应用该场景的假设参数，求解结束后自动恢复。')) return;
+    const hasOrders = b.dataset.orders === '1';
+    const tip = hasOrders
+        ? '运行沙盒求解？系统将临时应用该场景的假设参数，并临时注入插单订单；求解结束后自动恢复正式参数与订单表。'
+        : '运行沙盒求解？系统将临时应用该场景的假设参数，求解结束后自动恢复。';
+    if (!confirm(tip)) return;
     const sid = b.dataset.sid;
-    const r = await fetch('/api/whatif/scenarios/' + sid + '/run', {method: 'POST'}).then(x => x.json());
+    const r = await fetch(API_BASE + '/whatif/scenarios/' + sid + '/run', {method: 'POST'}).then(x => x.json());
     if (!r.started) { alert(r.message || '启动失败'); return; }
     startPolling(sid);
 }));
+
+// 初始化：条数上限文案 + 参数上限兜底（/api/params）+ 产品下拉（/open/md/materials?category=PRODUCT）
+(async function initOrderTab() {
+    document.querySelectorAll('.order-max').forEach(el => { el.textContent = ORDER_MAX; });
+    try {
+        const groups = await fetch(API_BASE + '/params').then(x => x.json());
+        (Array.isArray(groups) ? groups : []).forEach(g =>
+            (g.items || []).forEach(it => { PARAMS[it.key] = it.value; }));
+    } catch (e) { /* 取不到不影响：页签内已渲染当前正式值，最后回退内置默认上限 */ }
+    renderOrderBounds();
+    afterOrdersChanged();
+    try {
+        const resp = await fetch('/open/md/materials?category=PRODUCT&page_size=500').then(x => x.json());
+        const items = (resp.items || []).filter(m => m.material_code);
+        document.getElementById('dlProducts').innerHTML = items.map(m =>
+            '<option value="' + m.material_code + '">' + m.material_code +
+            (m.material_name ? ' ' + m.material_name : '') + '</option>').join('');
+        document.getElementById('orderProductHint').textContent =
+            '已加载 ' + items.length + ' 项，可在列内选择或直接输入编码';
+    } catch (e) {
+        document.getElementById('orderProductHint').textContent =
+            '产品库加载失败，请手动输入产品代码（后端仍会校验）';
+    }
+})();
 
 function startPolling(sid) {
     pollSid = sid;
@@ -238,7 +500,7 @@ function startPolling(sid) {
 
 async function poll() {
     if (!pollSid) return;
-    const r = await fetch('/api/whatif/scenarios/' + pollSid + '/status').then(x => x.json());
+    const r = await fetch(API_BASE + '/whatif/scenarios/' + pollSid + '/status').then(x => x.json());
     const card = document.querySelector('[data-sid="' + pollSid + '"]');
     if (r.log_tail && card) {
         const pre = card.querySelector('[data-log-content]');

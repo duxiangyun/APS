@@ -189,15 +189,20 @@ async def api_whatif_list():
 @router.post("/api/whatif/scenarios")
 async def api_whatif_create(request: Request):
     body = await request.json()
+    if not isinstance(body, dict):
+        body = {}
     return create_scenario(body.get("name"), body.get("description"),
-                           body.get("overrides") or {})
+                           body.get("overrides") or {}, body.get("orders"))
 
 
 @router.post("/api/whatif/scenarios/{sid}")
 async def api_whatif_update(sid: str, request: Request):
     body = await request.json()
+    if not isinstance(body, dict):
+        body = {}
+    # orders 省略（None）表示不修改插单假设；传 [] 表示清空
     return update_scenario(sid, body.get("name"), body.get("description"),
-                           body.get("overrides") or {})
+                           body.get("overrides") or {}, body.get("orders"))
 
 
 @router.delete("/api/whatif/scenarios/{sid}")

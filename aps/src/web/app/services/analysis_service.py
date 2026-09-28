@@ -787,7 +787,8 @@ def _version_kpi(conn: sqlite3.Connection, run_id: int) -> dict:
         kpi["undelivered"] = d["un"] or 0
     s = conn.execute(
         """SELECT sales_revenue, profit, delay_penalty, manufacturing_cost,
-                  outsource_cost, purchase_cost, fixture_cost, inventory_cost
+                  outsource_cost, purchase_cost, fixture_cost, inventory_cost,
+                  infeasible_cost
            FROM res_summary WHERE run_id = ?""", (run_id,)).fetchone()
     if s:
         kpi.update({
@@ -797,37 +798,76 @@ def _version_kpi(conn: sqlite3.Connection, run_id: int) -> dict:
             "out_cost": round(s["outsource_cost"], 0),
             "purchase_cost": round(s["purchase_cost"], 0),
             "fixture_cost": round(s["fixture_cost"], 0),
+            # 库存成本量级很小（15.85 元级），保留 2 位小数以便版本间比较
+            "inventory_cost": round(s["inventory_cost"], 2),
+            # 产能不足惩罚：插单导致产能缺口时产生，插单分析关键指标
+            "infeasible_cost": round(s["infeasible_cost"], 0),
         })
     return kpi
 
 
+# 指标优劣方向：higher = 数值越大越优；lower = 数值越小越优；none = 中性指标（不判定优劣）
+KPI_DIRECTIONS = {
+    "orders": "none",           # 订单总数：需求给定，两版本一致，不参与优劣
+    "ontime_rate": "higher",    # 订单准交率：越高越好
+    "delayed": "lower",         # 延期订单数
+    "undelivered": "lower",     # 未交付订单数
+    "revenue": "higher",        # 销售收入
+    "profit": "higher",         # 利润总额
+    "penalty": "lower",         # 延期罚金
+    "mfg_cost": "lower",        # 制造成本
+    "out_cost": "lower",        # 外协费用
+    "purchase_cost": "lower",   # 采购成本
+    "inventory_cost": "lower",  # 库存成本
+    "fixture_cost": "lower",    # 工装费用
+    "infeasible_cost": "lower", # 产能不足惩罚：插单产能缺口成本，越大越差
+}
+
+# 方案对比表展示顺序：(标签, KPI 字段, 数值格式)
+COMPARE_METRICS = [
+    ("订单总数", "orders", "{:g}"),
+    ("订单准交率(%)", "ontime_rate", "{:.1f}"),   # 固定 1 位小数，避免浮点尾巴（如 1.2999999999999972）
+    ("延期订单数", "delayed", "{:g}"),
+    ("未交付订单数", "undelivered", "{:g}"),
+    ("销售收入", "revenue", "¥{:,.0f}"),
+    ("利润总额", "profit", "¥{:,.0f}"),
+    ("延期罚金", "penalty", "¥{:,.0f}"),
+    ("制造成本", "mfg_cost", "¥{:,.0f}"),
+    ("外协费用", "out_cost", "¥{:,.0f}"),
+    ("采购成本", "purchase_cost", "¥{:,.0f}"),
+    ("库存成本", "inventory_cost", "¥{:,.2f}"),   # 金额量级小，2 位小数才可区分版本差异
+    ("工装费用", "fixture_cost", "¥{:,.0f}"),
+    ("产能不足惩罚", "infeasible_cost", "¥{:,.0f}"),
+]
+
+
+def _better_version(key: str, diff: float) -> str:
+    """按指标方向判定差异 diff = B − A 归属于哪个版本更优。
+
+    返回 "b" / "a"；中性指标（direction=none）或差异不显著时返回空串（前端显示“—”）。
+    """
+    direction = KPI_DIRECTIONS.get(key, "none")
+    if direction == "none" or abs(diff) <= EPS:
+        return ""
+    if direction == "lower":            # 越小越好：B 更小则 B 优
+        return "b" if diff < 0 else "a"
+    return "b" if diff > 0 else "a"    # 越大越好：B 更大则 B 优
+
+
 def get_version_compare(conn: sqlite3.Connection, run_a: int, run_b: int) -> dict:
     ka, kb = _version_kpi(conn, run_a), _version_kpi(conn, run_b)
-    metrics = [
-        ("订单总数", "orders", "{:g}", False),
-        ("订单准交率(%)", "ontime_rate", "{}", True),
-        ("延期订单数", "delayed", "{:g}", True),
-        ("未交付订单数", "undelivered", "{:g}", True),
-        ("销售收入", "revenue", "¥{:,.0f}", False),
-        ("利润总额", "profit", "¥{:,.0f}", False),
-        ("延期罚金", "penalty", "¥{:,.0f}", True),
-        ("制造成本", "mfg_cost", "¥{:,.0f}", True),
-        ("外协费用", "out_cost", "¥{:,.0f}", True),
-        ("采购成本", "purchase_cost", "¥{:,.0f}", True),
-        ("工装费用", "fixture_cost", "¥{:,.0f}", True),
-    ]
     rows = []
-    for label, key, fmt, lower_better in metrics:
+    for label, key, fmt in COMPARE_METRICS:
         va, vb = ka.get(key), kb.get(key)
         diff = None
         better = ""
         if va is not None and vb is not None:
             diff = vb - va
-            if abs(diff) > EPS:
-                good = diff < 0 if lower_better else diff > 0
-                better = "b" if good else "a"
+            better = _better_version(key, diff)
         rows.append({
             "label": label,
+            "key": key,
+            "direction": KPI_DIRECTIONS.get(key, "none"),
             "a": fmt.format(va) if va is not None else "-",
             "b": fmt.format(vb) if vb is not None else "-",
             "diff": (fmt.format(diff) if diff is not None and diff >= 0 else

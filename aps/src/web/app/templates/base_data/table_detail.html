@@ -353,10 +353,12 @@ function collectFields() {
 }
 if (document.getElementById('btnSaveRow')) {
     document.getElementById('btnSaveRow').addEventListener('click', async () => {
-        const url = editMode === 'update' ? `/api/edit/${TABLE_NAME}/update` : `/api/edit/${TABLE_NAME}/create`;
+        // 路径必须作为 fetch 的第一个实参「字面量」：web 端 vite 才会补 /aps 前缀
+        // （见 web/vite.config.ts rewriteHtmlPaths）；放到变量里再 fetch(url) 在 iframe 内会 404。
         const body = editMode === 'update' ? {pk: editPk, fields: collectFields()} : collectFields();
-        const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'},
-                                    body: JSON.stringify(body)}).then(x => x.json());
+        const r = await fetch(`/api/edit/${TABLE_NAME}/${editMode === 'update' ? 'update' : 'create'}`,
+                              {method: 'POST', headers: {'Content-Type': 'application/json'},
+                               body: JSON.stringify(body)}).then(x => x.json());
         const el = document.getElementById('editMsg');
         el.innerHTML = r.ok
             ? '<i class="fas fa-check-circle text-success"></i> ' + r.message

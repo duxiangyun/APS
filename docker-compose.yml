@@ -7,6 +7,7 @@ services:
       - "8000:8000"
     volumes:
       - ./aps/data/db:/app/data/db        # SQLite 数据库持久化
+      - ./aps/data/output:/app/data/output  # 排产结果 / What-if 沙盒场景持久化（重建镜像不丢数据）
     environment:
       HOST: 0.0.0.0
       PORT: "8000"

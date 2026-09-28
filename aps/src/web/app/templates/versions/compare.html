@@ -25,10 +25,15 @@
         <tbody>
         {% for r in data.rows %}
         <tr>
-            <td>{{ r.label }}</td>
+            <td>{{ r.label }}
+                {# 指标方向角标：↑ 越大越优 / ↓ 越小越优 / — 中性不比较 #}
+                {% if r.direction == 'higher' %}<i class="fas fa-arrow-up text-muted ms-1" style="font-size:0.7rem" title="越大越好"></i>
+                {% elif r.direction == 'lower' %}<i class="fas fa-arrow-down text-muted ms-1" style="font-size:0.7rem" title="越小越好"></i>
+                {% else %}<i class="fas fa-minus text-muted ms-1" style="font-size:0.7rem" title="中性指标，不参与优劣判定"></i>{% endif %}
+            </td>
             <td class="text-center">{{ r.a }}</td>
             <td class="text-center fw-bold">{{ r.b }}</td>
-            <td class="text-center {{ 'text-success' if r.better else ('text-danger' if r.better == '' and r.diff not in ('-','0','¥0','0.0%') else '') }}">
+            <td class="text-center {{ 'text-success' if r.better == 'b' else ('text-danger' if r.better == 'a' else 'text-muted') }}">
                 {{ r.diff }}
             </td>
             <td class="text-center">
@@ -42,7 +47,12 @@
     </table>
 </div></div>
 <p class="text-muted small mt-2">
-    说明：收入/利润等指标越大越优（绿色标记差异为正的版本），罚金/成本类指标越小越优；
+    指标方向：<i class="fas fa-arrow-up"></i> 越大越优（订单准交率、销售收入、利润总额）；
+    <i class="fas fa-arrow-down"></i> 越小越优（延期订单数、未交付订单数、延期罚金、制造成本、外协费用、采购成本、库存成本、工装费用、产能不足惩罚）；
+    <i class="fas fa-minus"></i> 中性指标（订单总数）不判定优劣。<br>
+    「更优」列按上述方向比较差异 (B−A)：<span class="text-success">绿色差异 = B 优</span>、
+    <span class="text-danger">红色差异 = A 优</span>、<span class="text-muted">灰色 = 持平或中性指标</span>；
+    数值差异小于判据阈值时视为持平。
     负荷率类指标需在「分析中心 → 瓶颈分析」按版本查看（当前结果视图默认展示最新版本）。
 </p>
 {% endblock %}
