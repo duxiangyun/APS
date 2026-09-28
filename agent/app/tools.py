@@ -1,4 +1,4 @@
-"""APS 数据工具层：6 个只读工具，全部通过 HTTP 调用 aps 的 /open/* 接口。
+"""APS 数据工具层：12 个只读工具，全部通过 HTTP 调用 aps 的 /open/* 接口。
 
 工具清单
     get_orders        订单列表（可按交付状态 / 交期过滤）
@@ -9,6 +9,10 @@
     get_kpi           经营 KPI 卡片（收入 / 成本 / 利润 / 准交率）
     get_audit_logs    审计日志查询（仅 admin 角色，见 ADMIN_ONLY_TOOLS）
     get_system_status 系统运行状态巡检（仅 admin 角色，见 ADMIN_ONLY_TOOLS）
+    get_material_master 物料主数据台账（编码 / 名称 / 类别过滤，主数据核对用）
+    get_bom           BOM 多级展开（父件 → 逐层子件、用量、单位、层级）
+    get_routing       工艺路线（步序 → 工序 → 设备 / 产线 / 工装 / 提前期）
+    get_resource_master 设备 / 工装台账（类型、产线、数量、成本、利用率）
 
 约定
 - 每个工具有明确的 JSON Schema（OpenAI function calling 格式，见 TOOLS）
@@ -858,6 +862,210 @@ async def get_system_status() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# 主数据工具（9-12）：物料 / BOM / 工艺路线 / 设备工装台账
+#   - 全部对应 aps /open/md/*（aps 侧用只读连接 mode=ro），供 masterdata 角色核对基础数据
+#   - 字段名以 aps 实际返回为准：initial_inventory / min_inventory / max_inventory /
+#     step_order（数据库真实列名 step_order，非旧文档的 step_no）
+#   - 列表类工具单次拉 _MD_LIST_PAGE_SIZE 条（aps page_size 上限 500）；主数据变动频率低
+#     但核对要求「看到当前值」，因此不加短时缓存，每次直读 aps
+# ---------------------------------------------------------------------------
+_MD_LIST_PAGE_SIZE = 200
+
+
+# ---------------------------------------------------------------------------
+# 工具 9：get_material_master —— 物料主数据台账
+# ---------------------------------------------------------------------------
+async def get_material_master(code: str = "", search: str = "",
+                              category: str = "") -> dict:
+    """物料台账（GET /open/md/materials）：编码精确 / 名称-编码模糊 / 类别过滤。"""
+    code = str(code or "").strip()
+    search = str(search or "").strip()
+    category = str(category or "").strip()
+    data = await aps_client.aps_md_materials(
+        code=code, search=search, category=category,
+        page=1, page_size=_MD_LIST_PAGE_SIZE)
+    items = data.get("items") or []
+    total = int(_num(data.get("total"), len(items)))
+    cond = "、".join(x for x in (
+        f"编码={code}" if code else "",
+        f"关键字={search}" if search else "",
+        f"类别={category}" if category else "",
+    ) if x) or "全部物料"
+    if not items:
+        return {"summary": f"物料台账未命中记录（检索条件：{cond}；库中物料共 {total} 条）。",
+                "total": total, "count": 0, "items": []}
+
+    cats: dict[str, int] = {}
+    incomplete: list = []
+    brief: list[dict] = []
+    for it in items:
+        key = str(it.get("category") or "-")
+        cats[key] = cats.get(key, 0) + 1
+        if not it.get("unit") or not it.get("category") or it.get("min_inventory") is None:
+            incomplete.append(it.get("material_code"))
+        brief.append({k: it.get(k) for k in (
+            "material_code", "material_name", "category", "unit",
+            "initial_inventory", "target_end_inventory",
+            "min_inventory", "max_inventory", "holding_cost_rate")})
+    return {
+        "summary": (f"物料台账命中 {len(brief)}/{total} 条（检索条件：{cond}；类别分布 "
+                    + "、".join(f"{k} {v} 条" for k, v in sorted(cats.items()))
+                    + (f"；{len(incomplete)} 条缺单位/类别/库存下限，需维护"
+                       if incomplete else "；关键字段无缺失") + "）。"),
+        "total": total, "count": len(brief), "items": brief,
+        "incomplete": incomplete,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 工具 10：get_bom —— BOM 多级展开
+# ---------------------------------------------------------------------------
+async def get_bom(parent_material_code: str = "", material_code: str = "",
+                  max_level: int = 5) -> dict:
+    """BOM 多级展开（GET /open/md/bom）：父件向下逐层列出子件、用量、单位与层级。
+
+    material_code 是 parent_material_code 的容错别名（LLM 常把两个参数名混用）；
+    max_level 超出上限返回提示，截断时 summary 与 truncated 均会标注。
+    """
+    root = str(parent_material_code or material_code or "").strip()
+    if not root:
+        return {"summary": "需要提供物料编码（parent_material_code）才能展开 BOM。",
+                "error": True}
+    level = max(1, min(int(_num(max_level, 5) or 5), 10))
+    data = await aps_client.aps_md_bom(parent_material_code=root, max_level=level)
+    items = data.get("items") or []
+    name = str(data.get("material_name") or "")
+    label = f"{root}（{name}）" if name else root
+    if not items:
+        return {"summary": f"{label} 未展开出任何子件（该物料不在 BOM 中或已是最底层物料）。",
+                "material_code": root, "material_name": name, "max_level": level,
+                "total": 0, "truncated": False, "levels": [], "items": []}
+
+    per_level: dict[int, int] = {}
+    for it in items:
+        lv = int(_num(it.get("level"), 0))
+        per_level[lv] = per_level.get(lv, 0) + 1
+    levels = sorted(per_level)
+    truncated = bool(data.get("truncated"))
+    brief = [{k: it.get(k) for k in (
+        "level", "parent_code", "child_code", "child_name",
+        "child_category", "unit", "quantity", "bom_level")} for it in items]
+    return {
+        "summary": (f"BOM 展开 {label}：共 {len(brief)} 条子件关系、{len(levels)} 层"
+                    f"（最深第{levels[-1]}层："
+                    + "、".join(f"第{k}层{v}条" for k, v in sorted(per_level.items())) + "）"
+                    + (f"；已达 max_level={level} 上限、更深层级未展开（已截断，truncated=true），"
+                       f"如需完整结构请提高 max_level" if truncated else "；已展开完整结构")
+                    + "。"),
+        "material_code": root, "material_name": name, "max_level": level,
+        "total": len(brief), "truncated": truncated,
+        "levels": levels, "per_level": per_level, "items": brief,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 工具 11：get_routing —— 工艺路线
+# ---------------------------------------------------------------------------
+async def get_routing(material_code: str = "", routing_id: int | None = None) -> dict:
+    """工艺路线（GET /open/md/routing）：按物料返回全部路线与工序明细。
+
+    同一物料可能维护多条路线（is_default 标记默认），因此 summary 会提示路线数。
+    """
+    code = str(material_code or "").strip()
+    if not code:
+        return {"summary": "需要提供物料编码（material_code）才能查询工艺路线。",
+                "error": True}
+    rid = None if routing_id in (None, "") else int(_num(routing_id))
+    data = await aps_client.aps_md_routing(material_code=code, routing_id=rid)
+    steps = data.get("steps") or []
+    routes = data.get("routes") or []
+    if not steps:
+        return {"summary": f"物料 {code} 未维护工艺路线（routes / steps 均为空，需在系统侧补充）。",
+                "material_code": code, "route_count": 0, "total": 0,
+                "routes": [], "steps": []}
+
+    orders = [int(_num(s.get("step_order"), 0)) for s in steps]
+    # 待维护项：工序未绑定设备 / 工序的设备未绑定产线（core_md_resource.line_code 为空）
+    no_equip = [s.get("step_order") for s in steps if not s.get("equipment_code")]
+    no_line = [s.get("step_order") for s in steps
+               if s.get("equipment_code") and not s.get("resource_line_code")]
+    default_route = next((r for r in routes if r.get("is_default")), None)
+    brief_routes = [{k: r.get(k) for k in (
+        "routing_id", "alt_route_id", "total_lead_time", "is_default",
+        "is_active", "step_count")} for r in routes]
+    brief_steps = [{k: s.get(k) for k in (
+        "routing_id", "step_order", "step_no", "operation_code", "operation_name",
+        "equipment_code", "equipment_name", "equipment_type",
+        "production_line_code", "resource_line_code",
+        "fixture_code", "fixture_quantity", "max_lead_time")} for s in steps]
+    return {
+        "summary": (f"物料 {code} 共 {len(brief_routes)} 条工艺路线、{len(brief_steps)} 道工序"
+                    f"（步序 {min(orders)}-{max(orders)}）"
+                    + (f"；默认路线 routing_id={default_route.get('routing_id')}、"
+                       f"总提前期 {default_route.get('total_lead_time')}"
+                       if default_route else "")
+                    + (f"；{len(brief_routes)} 条路线并存，需核对是否重复维护"
+                       if len(brief_routes) > 1 else "")
+                    + (f"；{len(no_equip)} 道工序未绑定设备，需维护" if no_equip else "")
+                    + (f"；{len(no_line)} 道工序的设备未绑定产线"
+                       f"（设备主数据 line_code 为空），产线归属需维护"
+                       if no_line else "") + "。"),
+        "material_code": code, "route_count": len(brief_routes),
+        "total": len(brief_steps), "multi_route": len(brief_routes) > 1,
+        "default_routing_id": default_route.get("routing_id") if default_route else None,
+        "routes": brief_routes, "steps": brief_steps,
+        "unbound_equipment_steps": no_equip, "unbound_line_steps": no_line,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 工具 12：get_resource_master —— 设备 / 工装台账
+# ---------------------------------------------------------------------------
+async def get_resource_master(code: str = "", type: str = "",  # noqa: A002 与 aps 接口同名
+                              page: int = 1, page_size: int = 50) -> dict:
+    """设备/工装台账（GET /open/md/resources）：编码精确 / 类型过滤 + 分页。
+
+    type 支持数据库值 EQUIPMENT（设备）/ FIXTURE（工装）/ LINE（产线）与中文别名。
+    """
+    res_code = str(code or "").strip()
+    res_type = str(type or "").strip()  # noqa: A002
+    page = max(1, int(_num(page, 1) or 1))
+    page_size = max(1, min(int(_num(page_size, 50) or 50), 500))
+    data = await aps_client.aps_md_resources(
+        code=res_code, resource_type=res_type, page=page, page_size=page_size)
+    items = data.get("items") or []
+    total = int(_num(data.get("total"), len(items)))
+    cond = "、".join(x for x in (
+        f"编码={res_code}" if res_code else "",
+        f"类型={res_type}" if res_type else "") if x) or "全部资源"
+    if not items:
+        return {"summary": f"资源台账未命中记录（检索条件：{cond}；库中资源共 {total} 条）。",
+                "total": total, "page": page, "page_size": page_size,
+                "count": 0, "items": []}
+
+    types: dict[str, int] = {}
+    no_line: list = []
+    brief: list[dict] = []
+    for it in items:
+        t = str(it.get("resource_type") or "-")
+        types[t] = types.get(t, 0) + 1
+        if not it.get("line_code"):
+            no_line.append(it.get("resource_code"))
+        brief.append({k: it.get(k) for k in (
+            "resource_code", "resource_name", "resource_type", "line_code",
+            "line_name", "line_type", "quantity", "unit_cost",
+            "utilization_rate", "overtime_rate", "overtime_cost_multiplier")})
+    return {
+        "summary": (f"资源台账命中 {len(brief)}/{total} 条（检索条件：{cond}；类型分布 "
+                    + "、".join(f"{k} {v} 条" for k, v in sorted(types.items()))
+                    + (f"；{len(no_line)} 条未绑定产线（line_code 为空），产线归属待维护"
+                       if no_line else "；产线归属完整") + "）。"),
+        "total": total, "page": page, "page_size": page_size,
+        "count": len(brief), "items": brief, "unbound_line": no_line,
+    }
+
+
+# ---------------------------------------------------------------------------
 # 工具注册 & 调度
 #   - 每个工具有明确的 JSON Schema（OpenAI function calling 格式）
 #   - execute_tool 记录日志：session_id / 工具名 / 参数 / 耗时 / 结果摘要
@@ -968,6 +1176,63 @@ TOOL_META: dict[str, dict] = {
         "required": [],
         "readonly": True,
     },
+    # ---- 主数据只读工具（供 masterdata 角色核对基础数据） ----
+    "get_material_master": {
+        "description": (
+            "查询物料主数据台账（物料编码 / 名称 / 类别 / 单位 / 期初库存 / 库存上下限 / "
+            "持有成本率），支持按编码精确、名称或编码模糊、类别过滤，用于主数据核对。"
+        ),
+        "parameters": {
+            "code": {"type": "string", "description": "物料编码精确匹配，如 MN-TM3G2A4"},
+            "search": {"type": "string", "description": "关键字模糊匹配物料编码或名称，如 驾驶室"},
+            "category": {"type": "string",
+                         "description": "物料类别：PRODUCT（整机）/ SEMI（半成品）/ RAW（原材料）"},
+        },
+        "required": [],
+        "readonly": True,
+    },
+    "get_bom": {
+        "description": (
+            "展开指定物料的多级 BOM 结构（父件 → 逐层子件、用量、单位、层级），"
+            "用于核对 BOM 完整性与层级；受 max_level 限制未展开完时结果中 truncated=true。"
+        ),
+        "parameters": {
+            "parent_material_code": {"type": "string",
+                                     "description": "BOM 展开起点的物料编码（必填），如 MN-TM3G2A4"},
+            "max_level": {"type": "integer",
+                          "description": "向下展开的最大层数，默认 5，上限 10"},
+        },
+        "required": ["parent_material_code"],
+        "readonly": True,
+    },
+    "get_routing": {
+        "description": (
+            "查询指定物料的工艺路线：路线（routing_id / 是否默认 / 总提前期）与逐道工序"
+            "（步序、工序名、设备、产线、工装、最大提前期），并标注未绑定设备或产线的待维护工序。"
+        ),
+        "parameters": {
+            "material_code": {"type": "string", "description": "物料编码（必填），如 MN-TM3G2A4"},
+            "routing_id": {"type": "integer",
+                           "description": "仅查询指定路线 ID（同一物料有多条路线时使用），缺省返回全部路线"},
+        },
+        "required": ["material_code"],
+        "readonly": True,
+    },
+    "get_resource_master": {
+        "description": (
+            "查询设备 / 工装台账（编码、名称、类型、所属产线、数量、单位成本、利用率、加班费率），"
+            "可按编码与类型过滤，用于核对资源主数据与产线归属。"
+        ),
+        "parameters": {
+            "code": {"type": "string", "description": "资源编码精确匹配，如 装配1"},
+            "type": {"type": "string",
+                     "description": "资源类型：EQUIPMENT（设备）/ FIXTURE（工装）/ LINE（产线），也可用中文 设备 / 工装"},
+            "page": {"type": "integer", "description": "页码，默认 1"},
+            "page_size": {"type": "integer", "description": "每页条数，默认 50，上限 500"},
+        },
+        "required": [],
+        "readonly": True,
+    },
 }
 
 # 函数实现映射
@@ -980,6 +1245,11 @@ TOOL_FN: dict[str, Any] = {
     "get_kpi": get_kpi,
     "get_audit_logs": get_audit_logs,
     "get_system_status": get_system_status,
+    # 主数据只读工具（readonly=True）
+    "get_material_master": get_material_master,
+    "get_bom": get_bom,
+    "get_routing": get_routing,
+    "get_resource_master": get_resource_master,
 }
 
 # 可用工具名集合（供 routes.py /skills 校验用）
@@ -1090,8 +1360,12 @@ async def execute_tool(name: str, args: dict | None = None,
         "device": "resource", "machine": "resource", "equip": "resource",
         "eqp": "resource", "resource_code": "resource", "date_range": "period",
         "range": "period", "dates": "period", "n": "top_n", "num": "top_n",
+        # 主数据工具：LLM 常按 aps 接口参数名传参，这里统一收敛到工具签名
+        "resource_type": "type", "parent_code": "parent_material_code",
+        "mat_code": "material_code",
     }
-    _INT_PARAMS = {"order_id", "top_n", "due_before", "priority", "limit"}
+    _INT_PARAMS = {"order_id", "top_n", "due_before", "priority", "limit",
+                   "page", "page_size", "max_level", "routing_id"}
     params: dict = {}
     for k, v in args.items():
         key = _PARAMS_ALIAS.get(k, k)
@@ -1158,5 +1432,66 @@ def _to_as_text(name: str, result: dict) -> str:
         return summary + ("\n证据：\n" + "\n".join(f"- {e}" for e in ev) if ev else "")
     if name == "get_kpi":
         return summary + "\n指标: " + json.dumps(result.get("kpi", {}), ensure_ascii=False)
+    if name == "get_material_master":
+        items = result.get("items") or []
+        rows = "\n".join(
+            f"{it.get('material_code')} | {it.get('material_name')} | "
+            f"类别{it.get('category') or '-'} | 单位{it.get('unit') or '-'} | "
+            f"期初{_num(it.get('initial_inventory')):g} | "
+            f"库存上下限{_num(it.get('min_inventory')):g}/{_num(it.get('max_inventory')):g} | "
+            f"持有成本率{_num(it.get('holding_cost_rate')):g}"
+            for it in items[:40]
+        )
+        tail = f"\n（仅展示前 40 条，共 {len(items)} 条）" if len(items) > 40 else ""
+        return summary + ("\n" + rows if rows else "") + tail
+    if name == "get_bom":
+        items = result.get("items") or []
+        rows = "\n".join(
+            f"{'  ' * max(0, int(_num(it.get('level'), 1)) - 1)}"
+            f"L{it.get('level')} {it.get('parent_code')} → {it.get('child_code')}"
+            f" {it.get('child_name') or ''} 用量 {_num(it.get('quantity')):g}{it.get('unit') or ''}"
+            for it in items[:80]
+        )
+        if result.get("truncated"):
+            tail = (f"\n（因 max_level={result.get('max_level')} 截断，更深层级未展开；"
+                    f"如需完整结构可提高 max_level 重新查询）")
+        elif len(items) > 80:
+            tail = f"\n（仅展示前 80 条，共 {len(items)} 条）"
+        else:
+            tail = ""
+        return summary + ("\n" + rows if rows else "") + tail
+    if name == "get_routing":
+        steps = result.get("steps") or []
+        grouped: dict = {}
+        for s in steps:
+            grouped.setdefault(s.get("routing_id"), []).append(s)
+        lines: list[str] = []
+        for r in result.get("routes") or []:
+            rid = r.get("routing_id")
+            lines.append(
+                f"路线 {rid}（默认={'是' if r.get('is_default') else '否'}，"
+                f"总提前期 {r.get('total_lead_time')}，{r.get('step_count')} 道工序）:")
+            for s in grouped.get(rid, []):
+                lines.append(
+                    f"  步序{s.get('step_order')} {s.get('operation_code')}"
+                    f" {s.get('operation_name') or ''}"
+                    f" | 设备 {s.get('equipment_name') or s.get('equipment_code') or '未绑定'}"
+                    f" | 产线 {s.get('production_line_code') or '未指定'}"
+                    f" | 工装 {s.get('fixture_code') or '无'}"
+                    f" | 最大提前期 {s.get('max_lead_time')}")
+        return summary + ("\n" + "\n".join(lines) if lines else "")
+    if name == "get_resource_master":
+        items = result.get("items") or []
+        rows = "\n".join(
+            f"{it.get('resource_code')} | {it.get('resource_name')} | "
+            f"类型{it.get('resource_type') or '-'} | "
+            f"产线{it.get('line_code') or '未绑定'} | 数量{_num(it.get('quantity')):g} | "
+            f"单位成本{_num(it.get('unit_cost')):g} | "
+            f"利用率{_num(it.get('utilization_rate')):g} | "
+            f"加班费率{_num(it.get('overtime_rate')):g}"
+            for it in items[:40]
+        )
+        tail = f"\n（仅展示前 40 条，共 {len(items)} 条）" if len(items) > 40 else ""
+        return summary + ("\n" + rows if rows else "") + tail
     return summary
 

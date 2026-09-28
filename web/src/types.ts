@@ -3,8 +3,14 @@
 // ---------------------------------------------------------------------------
 // 角色（前端状态模拟，不做登录）
 // ---------------------------------------------------------------------------
+/**
+ * 9 个角色（与产品规划 6.4.2 权限矩阵、APS 侧 `app/constants.py::ROLE_MENUS`、
+ * agent 侧 `app/role_config.py::ROLE_KEYS` 三处同源，顺序也保持一致）：
+ *   切换角色 → ① 全局状态 role → agent /chat/stream + /skills 带新角色
+ *             ② APS iframe src 带 ?role= → APS 侧 role_control.js 重新应用菜单权限
+ */
 export type RoleKey = "planner" | "supervisor" | "manager" | "analyst"
-  | "purchaser" | "admin" | "default";
+  | "purchaser" | "masterdata" | "sales" | "admin" | "default";
 
 export interface RoleOption {
   key: RoleKey;
@@ -15,14 +21,19 @@ export interface RoleOption {
 }
 
 export const ROLES: RoleOption[] = [
-  { key: "planner", label: "计划员", desc: "关注订单交付与排产细节", agentRole: "planner" },
-  { key: "supervisor", label: "主管", desc: "关注产能负荷与瓶颈异常", agentRole: "supervisor" },
-  { key: "manager", label: "经理", desc: "关注 KPI、准交率与利润", agentRole: "manager" },
+  { key: "planner", label: "生产计划员", desc: "关注订单交付与排产细节", agentRole: "planner" },
+  { key: "supervisor", label: "车间主管", desc: "关注产能负荷与瓶颈异常", agentRole: "supervisor" },
+  { key: "manager", label: "生产经理", desc: "关注 KPI、准交率与利润", agentRole: "manager" },
   { key: "analyst", label: "数据分析师", desc: "用数据定位延期与瓶颈原因", agentRole: "analyst" },
   { key: "purchaser", label: "采购员", desc: "关注物料齐套、到料时间与供应风险", agentRole: "purchaser" },
-  { key: "admin", label: "管理员", desc: "系统巡检、数据核对与审计", agentRole: "admin" },
-  { key: "default", label: "通用助手", desc: "通用问答，仅开放 KPI 查询", agentRole: "default" },
+  { key: "masterdata", label: "主数据管理员", desc: "核对物料/设备/工艺/订单基础数据一致性", agentRole: "masterdata" },
+  { key: "sales", label: "销售人员", desc: "对客交期承诺：能否按期交付与延期风险", agentRole: "sales" },
+  { key: "admin", label: "IT 管理员", desc: "系统巡检、数据核对与审计", agentRole: "admin" },
+  { key: "default", label: "访客", desc: "通用问答，仅开放 KPI 查询", agentRole: "default" },
 ];
+
+/** 角色 key 顺序表（下拉/审计筛选共用，避免各处重复维护 9 个角色） */
+export const ROLE_KEYS: RoleKey[] = ROLES.map((r) => r.key);
 
 // ---------------------------------------------------------------------------
 // 技能（GET /skills）

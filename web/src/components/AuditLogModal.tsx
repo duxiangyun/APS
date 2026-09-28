@@ -10,12 +10,13 @@ import type { ColumnsType } from "antd/es/table";
 import { ReloadOutlined } from "@ant-design/icons";
 import { agentApi } from "../api";
 import type { AuditLogEntry, RoleKey, Skill } from "../types";
+import { ROLE_KEYS } from "../types";
 
 const TOOL_OPTIONS = ["get_orders", "get_schedule", "get_machine_load",
   "get_bottleneck", "explain_delay", "get_kpi",
   "get_audit_logs", "get_system_status"];
-const ROLE_OPTIONS = ["planner", "supervisor", "manager", "analyst",
-  "purchaser", "admin", "default"];
+/** 角色筛选选项与 9 角色清单同源（types.ts::ROLE_KEYS），避免两处维护不一致 */
+const ROLE_OPTIONS = ROLE_KEYS;
 const STATUS_OPTIONS = [
   { value: "success", label: "成功" },
   { value: "failed", label: "失败" },

@@ -46,7 +46,10 @@ web (5173) ──▶ agent (8100, FastAPI)
 工具（全部只读，均带 JSON Schema，调用记录写入 `logs/tool_calls.jsonl`：session_id/工具名/参数/耗时/结果摘要）：
 `get_orders(status, due_before)` · `get_schedule(order_id)` · `get_machine_load(period, resource)` ·
 `get_bottleneck(period, top_n)` · `explain_delay(order_id)` · `get_kpi()` · `get_audit_logs(...)`（仅 admin） ·
-`get_system_status()`（仅 admin）
+`get_system_status()`（仅 admin） ·
+`get_material_master(code, search, category)` · `get_bom(parent_material_code, max_level)` ·
+`get_routing(material_code, routing_id)` · `get_resource_master(code, type, page, page_size)`
+（后 4 个为主数据只读工具，数据源 aps `/open/md/*`，授权给 masterdata 角色）
 
 ## LLM 配置（OpenAI 兼容）
 

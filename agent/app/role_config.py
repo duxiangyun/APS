@@ -1,5 +1,7 @@
 """角色配置中心：角色-工具白名单、数据范围、输出策略（单一事实来源）
 
+- 9 个角色与产品规划 6.4.2 权限矩阵、APS 侧 `app/constants.py::ROLE_MENUS`、
+  前端 `web/src/types.ts::RoleKey` 三处同源（本文件为 Agent 侧事实来源）
 - react.py 旧 ROLE_PROMPTS / COMMON_RULES 已迁移至此，不要在别处重复定义
   （回答规则 _RULES_TEMPLATE 与输出示例 output_style["example"] 同样只在此维护）
 - /skills 与 /chat/stream 均经 filter_tools() 过滤，LLM 只能看到白名单内的工具
@@ -12,8 +14,8 @@ import re
 # ---------------------------------------------------------------------------
 # 角色枚举
 # ---------------------------------------------------------------------------
-ROLE_KEYS = ("planner", "supervisor", "manager", "analyst",
-             "purchaser", "admin", "default")
+ROLE_KEYS = ("planner", "supervisor", "manager", "analyst", "purchaser",
+             "masterdata", "sales", "admin", "default")
 
 # 工具简述（仅用于 system prompt 展示；详细参数见 tools.TOOL_META）
 _TOOL_BRIEF = {
@@ -25,10 +27,14 @@ _TOOL_BRIEF = {
     "get_kpi": "get_kpi()：整体经营 KPI（收入/成本/利润/准交率）",
     "get_audit_logs": "get_audit_logs(session_id, role, limit)：查询工具调用审计日志（仅 admin）",
     "get_system_status": "get_system_status()：查看系统运行状态（LLM/APS/审计，仅 admin）",
+    "get_material_master": "get_material_master(code, search, category)：查询物料主数据台账（编码/名称/类别/单位/库存上下限）",
+    "get_bom": "get_bom(parent_material_code, max_level)：展开物料的多级 BOM 结构（逐层子件与用量）",
+    "get_routing": "get_routing(material_code, routing_id)：查询物料工艺路线与工序（设备/产线/工装）",
+    "get_resource_master": "get_resource_master(code, type, page, page_size)：查询设备/工装台账（类型/产线/成本/利用率）",
 }
 ROLES: dict[str, dict] = {
     "planner": {
-        "label": "计划员",
+        "label": "生产计划员",
         "persona": "你是 APS 计划员助手，擅长解读排产结果、订单交付与产能负荷，给出可执行的计划建议。",
         "allowed_tools": [
             "get_orders", "get_schedule", "get_machine_load",
@@ -139,7 +145,8 @@ ROLES: dict[str, dict] = {
     "purchaser": {
         "label": "采购员",
         "persona": "你是采购助手，关注订单物料需求、交付时间与供应风险，回答围绕物料齐套与到料时间。",
-        # 现有 6 个只读工具中暂无物料/库存专属工具，先授权订单与排产（可推算物料需求时点）
+        # 物料/BOM 主数据工具归属 masterdata 角色，采购员不重复授权，
+        # 仍以订单需求与排产计划推算物料需求时点
         "allowed_tools": ["get_orders", "get_schedule"],
         "data_scope": {"level": "all", "factory_id": None},
         "output_style": {
@@ -157,8 +164,69 @@ ROLES: dict[str, dict] = {
         },
         "requires_confirmation": [],
     },
+    "masterdata": {
+        "label": "主数据管理员",
+        "persona": "你是 APS 主数据管理员助手，负责物料/设备/工艺/订单等基础数据的核对与一致性检查，不做产能归因与经营分析。",
+        # 职责边界：masterdata 只做基础数据核对，不承担产能归因（get_machine_load）
+        # 与排程解读（get_schedule）；主数据核对用 4 个主数据只读工具，
+        # get_orders 的数据源是排产结果视图（非真正主数据），仅用于订单基础信息与结果一致性抽查
+        "allowed_tools": [
+            "get_material_master", "get_bom", "get_routing",
+            "get_resource_master", "get_orders",
+        ],
+        "data_scope": {"level": "all", "factory_id": None},
+        "output_style": {
+            "key": "masterdata",
+            "label": "主数据核对",
+            "instructions": (
+                "回答以核对清单形式输出：数据项 → 当前值 → 是否完整/一致，"
+                "标出缺失、重复或与排产结果不符的项，并给出维护建议（只提示，不声称已修改数据）。"
+                "主数据核对必须用 4 个主数据工具：get_material_master（物料台账）、"
+                "get_bom（BOM 多级展开）、get_routing（工艺路线）、"
+                "get_resource_master（设备/工装台账）；get_orders 取自排产结果视图，"
+                "只能用于订单基础信息与结果一致性抽查，不得当作主数据来源。"
+                "发现字段为空（如资源 line_code）、一物多路线、工序未绑定设备等异常时，"
+                "必须显式列为待维护项，不要用结果层数据替代主数据结论。"
+            ),
+            "example": (
+                "主数据核对：物料 MN-TM3G2A4 → 名称『轮式整机(驾驶室)』、类别 PRODUCT、单位 个、"
+                "期初库存 0、库存上下限 0/10000、持有成本率 0.1 → 记录完整；\n"
+                "BOM 展开：MN-TM3G2A4 → MN-200337028/1（变速箱壳体总成虚拟件，用量 1 个）→ …"
+                "共 31 条子件关系、4 层（未截断）→ 结构完整；\n"
+                "工艺路线：routing_id=51（默认路线、5 道工序、总提前期 1）→ 步序100 底盘装配"
+                "用设备 装配1、产线 总装一线 → 工序完整；\n"
+                "设备台账：共 22 条（EQUIPMENT 20 / FIXTURE 2）→ 机加1 单位成本 8、利用率 0.9、"
+                "加班费率 0.5 → 记录完整；\n"
+                "待补充：**22 条资源的 line_code 全为 NULL，且 5 道工序所用设备均未绑定产线**，"
+                "需核对 core_md_resource.line_code 的维护情况（本助手只读，需在系统侧维护）。"
+            ),
+        },
+        "requires_confirmation": [],
+    },
+    "sales": {
+        "label": "销售人员",
+        "persona": "你是 APS 销售助手，面向客户交付承诺：回答订单能否按期交付、延期风险与当前进度，用客户可理解的语言。",
+        # 客户交期承诺只需订单需求与交付计划；不开放成本/利润等内部经营数据与设备工序明细
+        "allowed_tools": ["get_orders", "get_schedule"],
+        "data_scope": {"level": "all", "factory_id": None},
+        "output_style": {
+            "key": "delivery_commit",
+            "label": "交期承诺",
+            "instructions": (
+                "回答先给『能否按期交付』的结论，再给交期与预计交付期次、数量进度；"
+                "涉及延期时给出风险等级与对客沟通口径（不出现设备名、工序段、影子价格、成本与利润）。"
+                "若被问及内部归因细节，说明『需切换到计划员/数据分析师角色查看』。"
+            ),
+            "example": (
+                "结论：订单2 无法按期交付，预计延期2期（交期第2期 → 预计第4期）。"
+                "交付进度：需求36件，已安排全部36件交付，交付量不受影响。"
+                "对客口径：因产线同期产能紧张导致顺延，建议与客户沟通按第4期交付。"
+            ),
+        },
+        "requires_confirmation": [],
+    },
     "admin": {
-        "label": "管理员",
+        "label": "IT 管理员",
         "persona": "你是 APS 系统管理员助手，负责系统巡检、审计日志核查与运行状态确认，不参与业务排产分析。",
         # 阶段一止血：admin 不再拥有全部业务工具，仅保留 2 个管理面工具
         "allowed_tools": ["get_audit_logs", "get_system_status"],
@@ -179,7 +247,7 @@ ROLES: dict[str, dict] = {
         "requires_confirmation": [],
     },
     "default": {
-        "label": "通用助手",
+        "label": "访客",
         "persona": "你是 APS（高级计划排程）系统的智能助手。",
         # 阶段一止血：default 降权为仅 KPI 查询，避免未识别角色拿到全量工具
         "allowed_tools": ["get_kpi"],
@@ -282,7 +350,7 @@ def extract_role(value) -> str:
     """从请求值中提取并校验角色（兼容 'planner:xxx' 等写法），非法回退 default"""
     if isinstance(value, str):
         m = re.match(
-            r"^\s*(planner|supervisor|manager|analyst|purchaser|admin|default)\b",
+            r"^\s*(planner|supervisor|manager|analyst|purchaser|masterdata|sales|admin|default)\b",
             value.strip().lower(),
         )
         if m:
@@ -290,16 +358,28 @@ def extract_role(value) -> str:
     return "default"
 
 
+# 角色一致性自检（导入即校验，新增角色时漏改正则会失败，避免静默降级为 default）：
+#   ① ROLE_KEYS 与 ROLES 配置表一一对应
+#   ② extract_role 正则覆盖全部 ROLE_KEYS（每个 key 都能原样解析出来）
+assert set(ROLE_KEYS) == set(ROLES), "ROLE_KEYS 与 ROLES 配置表不一致"
+assert {extract_role(k) for k in ROLE_KEYS} == set(ROLE_KEYS), \
+    "extract_role 正则未覆盖全部 ROLE_KEYS，请同步补充角色枚举"
+
+
 # ---------------------------------------------------------------------------
 # 角色级字段白名单（field_filter）：output_style.key → 工具名 → 回传 LLM 的保留字段
 #   - 只作用于 postprocess_result 生成的 as_text（prompt 消费层），
 #     不改工具实现、不动前端 tool 卡片的 data/chart
-#   - 目的：结论级角色（manager）只接收结论级字段，
-#     屏蔽设备工序段、设备负荷明细与逐期交付明细，避免经营层回答被工序数据淹没
+#   - 目的：结论级角色（manager / sales）只接收结论级字段，
+#     屏蔽设备工序段、设备负荷明细与逐期交付明细，避免回答被工序数据淹没
 # ---------------------------------------------------------------------------
 _FIELD_FILTERS: dict[str, dict[str, tuple[str, ...]]] = {
     "summary_kpi": {
         "explain_delay": ("order_id", "delay_reason", "delay_periods", "penalty"),
+        "get_schedule": ("order_id", "due_period", "delivery_rate", "overall_span"),
+    },
+    # 销售交期承诺：只给交期与交付达成率（不给设备工序段、影子价格与逐期交付明细）
+    "delivery_commit": {
         "get_schedule": ("order_id", "due_period", "delivery_rate", "overall_span"),
     },
 }

@@ -11,7 +11,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 
-from app.constants import SIDEBAR_MENU
+from app.constants import SIDEBAR_MENU, ROLE_MENUS
 
 router = APIRouter(tags=["docs_tools"])
 
@@ -22,6 +22,8 @@ _PROJECT_ROOT = _BASE_DIR.parent.parent
 _DOCS_DIR = _PROJECT_ROOT / "docs"
 
 templates = Jinja2Templates(directory=str(_BASE_DIR / "app" / "templates"))
+# 角色-菜单授权表注入模板（templates/base.html 输出 window.ROLE_MENUS）
+templates.env.globals["ROLE_MENUS"] = ROLE_MENUS
 templates.env.cache = None
 
 

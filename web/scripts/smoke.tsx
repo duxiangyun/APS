@@ -29,7 +29,7 @@ import GanttChart from "../src/components/charts/GanttChart";
 import LoadChart from "../src/components/charts/LoadChart";
 import { ganttFromToolResult, placeholderGantt, placeholderLoad } from "../src/utils/chart";
 import { parseSseBuffer, reduceEvent } from "../src/utils/events";
-import type { ChatItem } from "../src/types";
+import { ROLES, type ChatItem } from "../src/types";
 
 const AGENT = process.env.AGENT_BASE_URL || "http://127.0.0.1:8100";
 let failed = 0;
@@ -52,6 +52,16 @@ for (const key of [
 ]) {
   check(`包含「${key}」`, html.includes(key));
 }
+
+// 角色联动：壳内切换角色 → APS iframe 带 ?role= 重载（方式 A）+ Agent 侧同源角色
+check("APS iframe 带角色参数", html.includes("/aps/dashboard?role=planner"));
+check("角色下拉共 9 个角色", ROLES.length === 9
+  && ["生产计划员", "主数据管理员", "销售人员", "IT 管理员", "访客"].every((l) => html.includes(l)));
+// 深链 ?role=masterdata：壳与 iframe 同步（window 垫片无 location，先补上）
+(globalThis as unknown as { window: { location: unknown } }).window.location = { search: "?role=masterdata" };
+const htmlMaster = renderToString(<App />);
+check("深链 ?role=masterdata 透传 iframe", htmlMaster.includes("/aps/dashboard?role=masterdata")
+  && htmlMaster.includes("主数据管理员"));
 
 // ---------------------------------------------------------------- 2. 图表
 console.log("\n== 2. 图表渲染 ==");

@@ -1147,6 +1147,100 @@ SIDEBAR_MENU = [
     {"key": "integration", "label": "集成管理", "icon": "fa-plug", "enabled": False, "children": []},
 ]
 
+# ---------------- 角色-菜单授权表 ----------------
+# 目标态设计来源：docs/离散型制造企业智能排产产品规划.md 6.4.2（9 角色 × 真实菜单矩阵）
+# 权限值语义：
+#   "full"    完整可用
+#   "read"    只读（菜单可见，页面内写操作按后续服务端鉴权收敛）
+#   "partial" 部分受限（菜单可见，可见范围见产品规划 6.4.2 限制说明）
+#   None      不可见（前端隐藏菜单）
+# 注意：仅前端可见性控制（Demo 阶段），不做后端鉴权；写接口的角色校验待用户表/会话落地后补充。
+MENU_KEYS = [
+    "workbench", "agent", "optimize", "vis", "analysis", "versions",
+    "biz", "base", "system", "docs", "tools", "scenario", "integration",
+]
+
+ROLE_MENUS = {
+    "planner": {
+        "workbench": "read", "agent": "full", "optimize": "full", "vis": "full",
+        "analysis": "read", "versions": "partial", "biz": "read", "base": "read",
+        "system": None, "docs": "read", "tools": "read",
+        "scenario": None, "integration": None,
+    },
+    "supervisor": {
+        "workbench": "read", "agent": "full", "optimize": "partial", "vis": "full",
+        "analysis": "full", "versions": "partial", "biz": "read", "base": "read",
+        "system": None, "docs": "read", "tools": "read",
+        "scenario": None, "integration": None,
+    },
+    "manager": {
+        "workbench": "read", "agent": "read", "optimize": "read", "vis": "read",
+        "analysis": "read", "versions": "read", "biz": "read", "base": "read",
+        "system": None, "docs": "read", "tools": None,
+        "scenario": None, "integration": None,
+    },
+    "analyst": {
+        "workbench": "read", "agent": "full", "optimize": "read", "vis": "read",
+        "analysis": "full", "versions": "read", "biz": "read", "base": "read",
+        "system": None, "docs": "read", "tools": "partial",
+        "scenario": None, "integration": None,
+    },
+    "purchaser": {
+        "workbench": "read", "agent": "read", "optimize": None, "vis": "read",
+        "analysis": "partial", "versions": None, "biz": "partial", "base": "partial",
+        "system": None, "docs": "read", "tools": None,
+        "scenario": None, "integration": None,
+    },
+    "masterdata": {
+        "workbench": "read", "agent": "read", "optimize": None, "vis": None,
+        "analysis": None, "versions": None, "biz": "full", "base": "full",
+        "system": None, "docs": "read", "tools": "partial",
+        "scenario": None, "integration": None,
+    },
+    "sales": {
+        "workbench": "read", "agent": "read", "optimize": None, "vis": "partial",
+        "analysis": None, "versions": "read", "biz": "partial", "base": None,
+        "system": None, "docs": "read", "tools": None,
+        "scenario": None, "integration": None,
+    },
+    "admin": {
+        "workbench": "read", "agent": "full", "optimize": "partial", "vis": "read",
+        "analysis": "read", "versions": "read", "biz": "read", "base": "read",
+        "system": "full", "docs": "full", "tools": "full",
+        "scenario": None, "integration": None,
+    },
+    "default": {
+        "workbench": "read", "agent": None, "optimize": None, "vis": "read",
+        "analysis": "read", "versions": "read", "biz": "read", "base": "read",
+        "system": None, "docs": "read", "tools": None,
+        "scenario": None, "integration": None,
+    },
+}
+
+# SIDEBAR_MENU 一级菜单 key 与本授权表 key 的对应关系。
+# 一级菜单 key 同时用于侧边栏 id/active_page 高亮判断（templates/base.html），改名会破坏既有页面高亮，
+# 因此保持 key 不变，额外补 "perm" 字段作为授权 key，模板以 data-menu="{{ menu.perm }}" 输出。
+MENU_KEY_ALIASES = {
+    "dashboard": "workbench",
+    "agent_chat": "agent",
+    "plan_opt": "optimize",
+    "visual": "vis",
+    "versions_menu": "versions",
+    "biz_data": "biz",
+    "base_data": "base",
+    "docs_menu": "docs",
+    "tools_menu": "tools",
+}
+
+for _menu in SIDEBAR_MENU:
+    _menu["perm"] = MENU_KEY_ALIASES.get(_menu["key"], _menu["key"])
+
+# 启动即自检：授权表覆盖全部菜单 key，且每个角色的授权 key 与 MENU_KEYS 完全一致
+assert {m["perm"] for m in SIDEBAR_MENU} <= set(MENU_KEYS), "SIDEBAR_MENU 存在未登记的一级菜单授权 key"
+assert {m["perm"] for m in SIDEBAR_MENU} == set(MENU_KEYS), "MENU_KEYS 与 SIDEBAR_MENU 一级菜单不一致"
+for _role, _perms in ROLE_MENUS.items():
+    assert set(_perms) == set(MENU_KEYS), f"ROLE_MENUS['{_role}'] 的授权 key 与 MENU_KEYS 不一致"
+
 
 def get_table_by_key(table_key: str) -> dict | None:
     for t in CORE_MD_TABLES:

@@ -25,12 +25,14 @@ from app.services.table_service import (
 from app.services.meta_service import get_display_columns, apply_enum_display
 from app.services.dashboard_service import get_dashboard
 from app.services.edit_service import get_editable_config, get_global_params
-from app.constants import COLUMN_DISPLAY_ORDER, SIDEBAR_MENU
+from app.constants import COLUMN_DISPLAY_ORDER, SIDEBAR_MENU, ROLE_MENUS
 
 router = APIRouter(tags=["pages"])
 _BASE_DIR = Path(__file__).resolve().parent.parent.parent
 templates = Jinja2Templates(directory=str(_BASE_DIR / "app" / "templates"))
 templates.env.cache = None
+# 角色-菜单授权表注入模板（templates/base.html 输出 window.ROLE_MENUS，供 static/js/role_control.js 使用）
+templates.env.globals["ROLE_MENUS"] = ROLE_MENUS
 
 
 @router.get("/dashboard", response_class=HTMLResponse)

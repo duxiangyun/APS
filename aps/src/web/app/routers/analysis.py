@@ -25,12 +25,14 @@ from app.services.whatif_service import (
     list_scenarios, create_scenario, update_scenario, delete_scenario,
     run_scenario, scenario_status, get_override_schema,
 )
-from app.constants import SIDEBAR_MENU
+from app.constants import SIDEBAR_MENU, ROLE_MENUS
 
 router = APIRouter(tags=["analysis"])
 _BASE_DIR = Path(__file__).resolve().parent.parent.parent
 templates = Jinja2Templates(directory=str(_BASE_DIR / "app" / "templates"))
 templates.env.cache = None
+# 角色-菜单授权表注入模板（templates/base.html 输出 window.ROLE_MENUS）
+templates.env.globals["ROLE_MENUS"] = ROLE_MENUS
 
 
 def _ctx(request: Request, active: str, **kw):

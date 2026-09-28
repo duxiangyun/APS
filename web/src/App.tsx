@@ -1,11 +1,19 @@
 /**
  * 统一入口壳（第一步骨架）
- *   顶部 56px 标题栏：Logo + "APS 智能排产" | Tab「排产管理 / AI 助手」| 右侧留空
+ *   顶部 56px 标题栏：Logo + "APS 智能排产" | Tab「排产管理 / AI 助手」| 右侧系统入口
  *   内容区按 activeTab 切换：
  *     'aps'   → iframe 嵌入 APS（相对路径 /aps，由 vite 反向代理转发到 APS 后端，
  *               避免写死 localhost 导致部署到服务器后指向用户本机），display 控制显隐以保持挂载
  *     'agent' → 现有 Agent 三栏工作台（LeftPanel + ChatPanel + RightPanel）
  * 状态由 useAppShell（React Context）管理，默认 'aps'。
+ *
+ * 角色联动（右上角切换角色 → 两侧同时生效）：
+ *   Agent 侧：全局 role → useWorkbench 传给 /chat/stream 的 role 与 /skills?role=，
+ *             并开启新会话（无需整页刷新）
+ *   APS  侧：iframe src 直接拼 `?role=<role>`（方式 A：切换角色即带新参数重新加载该 iframe，
+ *             页面其余部分不刷新，1 秒内完成），APS 侧 role_control.js 据此应用菜单权限。
+ *             注：APS 侧同时支持 postMessage({type:'ROLE_CHANGE', role}) 无刷新切换（方式 B），
+ *             当前 Demo 采用方式 A，故此处不再额外 postMessage。
  */
 import { useEffect, useState } from "react";
 import { Layout } from "antd";
@@ -37,7 +45,7 @@ function Logo() {
 }
 
 function AppShell() {
-  const { activeTab, setActiveTab } = useAppShell();
+  const { activeTab, setActiveTab, role } = useAppShell();
   const wb = useWorkbench();
   const [collapsed, setCollapsed] = useState(false);
 
@@ -76,12 +84,17 @@ function AppShell() {
       </header>
 
       <main className="app-content">
-        {/* 两块内容常驻挂载，仅用 display 切换：iframe 不会因切走再切回而重新加载 */}
+        {/* 两块内容常驻挂载，仅用 display 切换：iframe 不会因切走再切回而重新加载
+            （仅切换角色时带新 ?role= 重载，见文件头「角色联动」说明） */}
         <div
           className="pane pane-aps"
           style={{ display: activeTab === "aps" ? "block" : "none" }}
         >
-          <iframe className="aps-frame" src={APS_URL} title="APS 智能排产" />
+          <iframe
+            className="aps-frame"
+            src={`${APS_URL}/dashboard?role=${encodeURIComponent(role)}`}
+            title="APS 智能排产"
+          />
         </div>
 
         <div

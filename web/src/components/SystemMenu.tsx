@@ -1,8 +1,9 @@
 /**
  * 顶部栏右侧系统入口下拉：
- *   当前角色（只读）/ 切换角色（7 角色小面板）/ 查看可用技能（Drawer）
+ *   当前角色（只读）/ 切换角色（9 角色小面板）/ 查看可用技能（Drawer）
  *   / 大模型配置（只读 Modal）/ 审计日志（全屏 Modal）
- * 角色与 activeTab 共用 AppShellContext，经 wb.switchRole 统一切换。
+ * 角色与 activeTab 共用 AppShellContext，经 wb.switchRole 统一切换：
+ *   → Agent 侧重拉 /skills 并按新角色开新会话；APS 侧 iframe 带 ?role= 重新加载。
  */
 import { useState } from "react";
 import { Button, Dropdown, Modal } from "antd";
@@ -58,7 +59,7 @@ export default function SystemMenu({ wb }: { wb: Workbench }) {
         </button>
       </Dropdown>
 
-      {/* 切换角色：小面板列出全部 7 个角色 */}
+      {/* 切换角色：小面板列出全部 9 个角色（顺序与 APS 侧权限矩阵一致） */}
       <Modal
         title="切换角色"
         open={roleOpen}
