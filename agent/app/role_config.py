@@ -5,7 +5,9 @@
 - react.py 旧 ROLE_PROMPTS / COMMON_RULES 已迁移至此，不要在别处重复定义
   （回答规则 _RULES_TEMPLATE 与输出示例 output_style["example"] 同样只在此维护）
 - /skills 与 /chat/stream 均经 filter_tools() 过滤，LLM 只能看到白名单内的工具
-- requires_confirmation 预留：其中的工具执行前需二次确认（当前全部只读，留空）
+- requires_confirmation：其中的工具执行前需征得用户二次确认（提示词层约束；
+  写工具 simulate_insert_order 已列入 planner/manager/analyst 的确认名单；
+  执行层硬闸门待后续补充，当前由 LLM 依据提示词自觉遵守）
 - field_filter：结论级角色（manager）回传 LLM 的工具字段白名单，见 apply_field_filter
 """
 import json
@@ -31,7 +33,16 @@ _TOOL_BRIEF = {
     "get_bom": "get_bom(parent_material_code, max_level)：展开物料的多级 BOM 结构（逐层子件与用量）",
     "get_routing": "get_routing(material_code, routing_id)：查询物料工艺路线与工序（设备/产线/工装）",
     "get_resource_master": "get_resource_master(code, type, page, page_size)：查询设备/工装台账（类型/产线/成本/利用率）",
+    "plan_whatif": "plan_whatif(status, limit)：查询已有的 What-if 插单模拟场景（只读，不发起求解）",
+    "simulate_insert_order": (
+        "simulate_insert_order(product_code, quantity, due_period, priority_level, "
+        "max_delay_allowed, delay_penalty)：【写操作，触发一次真实求解】插单模拟并返回 "
+        "13 项 KPI 对比；调用前必须先与用户确认插单假设"
+    ),
 }
+# 写操作工具集合（会触发真实计算或写数据）：仅用于提示词标注与前端提示，
+# 实际执行前的硬闸门见 tools.execute_tool / react 流式链路
+_WRITE_TOOLS = {"simulate_insert_order"}
 ROLES: dict[str, dict] = {
     "planner": {
         "label": "生产计划员",
@@ -39,6 +50,7 @@ ROLES: dict[str, dict] = {
         "allowed_tools": [
             "get_orders", "get_schedule", "get_machine_load",
             "get_bottleneck", "explain_delay", "get_kpi",
+            "plan_whatif", "simulate_insert_order",
         ],
         "data_scope": {"level": "all", "factory_id": None},
         "output_style": {
@@ -59,7 +71,7 @@ ROLES: dict[str, dict] = {
                 "或上调订单2优先级后重排。"
             ),
         },
-        "requires_confirmation": [],
+        "requires_confirmation": ["simulate_insert_order"],
     },
     "supervisor": {
         "label": "车间主管",
@@ -94,6 +106,7 @@ ROLES: dict[str, dict] = {
         "allowed_tools": [
             "get_kpi", "get_orders", "get_bottleneck",
             "explain_delay", "get_schedule",
+            "plan_whatif", "simulate_insert_order",
         ],
         "data_scope": {"level": "all", "factory_id": None},
         "output_style": {
@@ -116,7 +129,7 @@ ROLES: dict[str, dict] = {
                 "（需要工序级证据可切换到计划员角色查看）"
             ),
         },
-        "requires_confirmation": [],
+        "requires_confirmation": ["simulate_insert_order"],
     },
     "analyst": {
         "label": "数据分析师",
@@ -124,6 +137,7 @@ ROLES: dict[str, dict] = {
         "allowed_tools": [
             "get_orders", "get_schedule", "get_machine_load",
             "get_bottleneck", "explain_delay", "get_kpi",
+            "plan_whatif", "simulate_insert_order",
         ],
         "data_scope": {"level": "all", "factory_id": None},
         "output_style": {
@@ -140,14 +154,14 @@ ROLES: dict[str, dict] = {
                 "若涂装-1 第2期释放10%产能，订单2 有望回到第3期交付。"
             ),
         },
-        "requires_confirmation": [],
+        "requires_confirmation": ["simulate_insert_order"],
     },
     "purchaser": {
         "label": "采购员",
         "persona": "你是采购助手，关注订单物料需求、交付时间与供应风险，回答围绕物料齐套与到料时间。",
         # 物料/BOM 主数据工具归属 masterdata 角色，采购员不重复授权，
         # 仍以订单需求与排产计划推算物料需求时点
-        "allowed_tools": ["get_orders", "get_schedule"],
+        "allowed_tools": ["get_orders", "get_schedule", "plan_whatif"],
         "data_scope": {"level": "all", "factory_id": None},
         "output_style": {
             "key": "material",
@@ -207,7 +221,7 @@ ROLES: dict[str, dict] = {
         "label": "销售人员",
         "persona": "你是 APS 销售助手，面向客户交付承诺：回答订单能否按期交付、延期风险与当前进度，用客户可理解的语言。",
         # 客户交期承诺只需订单需求与交付计划；不开放成本/利润等内部经营数据与设备工序明细
-        "allowed_tools": ["get_orders", "get_schedule"],
+        "allowed_tools": ["get_orders", "get_schedule", "plan_whatif"],
         "data_scope": {"level": "all", "factory_id": None},
         "output_style": {
             "key": "delivery_commit",
@@ -278,6 +292,19 @@ _RULES_TEMPLATE = """
 - 回答用简洁中文，关键数字保留合理精度
 - 用户询问"为什么延期"时，若白名单含 explain_delay/get_schedule 则先调用再归因；
   白名单没有这两个工具时基于可用工具有据作答，不要虚构，并说明可切换到具备该工具的角色
+
+插单结果回答规则（模拟插单场景专用）：
+1. 回答插单模拟结果时，只引用 simulate_insert_order 返回的 KPI 汇总数据
+2. 不要主动引导用户查看订单级明细
+3. 如果用户问具体哪些订单受影响（"哪些订单延期了""哪张被挤占了"）：
+   - 明确说明"当前版本不支持订单级明细，订单级明细功能开发中"
+   - 不要调用 get_orders / explain_delay / get_schedule 拼凑答案
+     （它们返回的是"当前排产结果"，不是"插单前后对比"）
+   - 也不要建议或引导用户"自行用 get_orders / explain_delay / get_schedule 查看"，
+     或用"可以查一下当前排产结果""用逐单归因看看"等说法变相引导
+     （这些工具返回的是当前排产结果，不是插单前后对比，用户照做同样得不到正确答案）
+   - 只说明"不支持订单级明细、功能开发中"即可，不要给出任何替代查询路径
+4. 不要声称"新增了订单X"或"订单Y被挤占"，除非工具明确返回了订单级对比数据
 """
 
 
@@ -326,6 +353,11 @@ def build_system_prompt(role: str | None, allowed_tools=None) -> str:
                    else [n for n in cfg["allowed_tools"] if n in _TOOL_BRIEF]))
     tool_lines = "\n".join(f"- {_TOOL_BRIEF[n]}" for n in names if n in _TOOL_BRIEF) \
         or "-（当前没有启用任何工具，请仅用文字回答）"
+    # 读写分流：只读工具与写（触发求解/写操作）工具分别标注，避免提示词与实际能力矛盾
+    write_tools = [n for n in names if n in _WRITE_TOOLS]
+    tool_ro_note = ("含写操作工具" if write_tools else "全部只读")
+    if write_tools:
+        tool_ro_note += f"；其中 {('、'.join(write_tools))} 会触发真实计算/写操作"
     scope = cfg["data_scope"]
     scope_line = (f"\n数据范围：{scope['level']}"
                   + (f"（工厂 {scope['factory_id']}）" if scope.get("factory_id") else ""))
@@ -337,7 +369,7 @@ def build_system_prompt(role: str | None, allowed_tools=None) -> str:
                     f"{style['example']}" if style.get("example") else "")
     return (
         f"{cfg['persona']}\n\n"
-        f"可用工具（全部只读）：\n{tool_lines}\n"
+        f"可用工具（{tool_ro_note}）：\n{tool_lines}\n"
         f"{scope_line}\n"
         f"输出风格：{style['instructions']}"
         f"{example_line}"

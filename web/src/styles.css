@@ -302,8 +302,13 @@ body {
 .markdown p { margin: 6px 0; }
 .markdown ul, .markdown ol { margin: 6px 0; padding-left: 20px; }
 .markdown code { background: var(--bg); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
-.markdown table { border-collapse: collapse; font-size: 12px; margin: 8px 0; }
-.markdown th, .markdown td { border: 1px solid var(--border); padding: 4px 8px; }
+/* Markdown 表格：外层允许横向滚动，避免宽表（如 KPI 对比）撑破气泡布局 */
+.markdown table { border-collapse: collapse; font-size: 12px; margin: 8px 0; display: block; width: max-content; max-width: 100%; overflow-x: auto; }
+.markdown th, .markdown td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; white-space: nowrap; }
+.markdown th { background: var(--bg); font-weight: 600; }
+.markdown tbody tr:nth-child(even) { background: rgba(0, 0, 0, 0.02); }
+/* 表格前后不留空隙过大 */
+.markdown table th:first-child, .markdown table td:first-child { white-space: normal; }
 
 .thinking { display: flex; align-items: center; gap: 8px; }
 

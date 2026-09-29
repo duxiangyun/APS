@@ -4,11 +4,11 @@
 <form class="d-flex align-items-center mb-3" method="get">
     <label class="me-2 fw-bold">版本 A</label>
     <select name="a" class="form-select form-select-sm me-3" style="width:auto" onchange="this.form.submit()">
-        {% for v in versions %}<option value="{{ v.run_id }}" {{ 'selected' if v.run_id == a }}>#{{ v.run_id }} ({{ v.run_time }})</option>{% endfor %}
+        {% for v in versions %}<option value="{{ v.run_id }}" {{ 'selected' if v.run_id == a }}>#{{ v.run_id }} ({{ v.run_time }}){{ ' [沙盒]' if v.is_sandbox else '' }}</option>{% endfor %}
     </select>
     <label class="me-2 fw-bold">版本 B</label>
     <select name="b" class="form-select form-select-sm me-3" style="width:auto" onchange="this.form.submit()">
-        {% for v in versions %}<option value="{{ v.run_id }}" {{ 'selected' if v.run_id == b }}>#{{ v.run_id }} ({{ v.run_time }})</option>{% endfor %}
+        {% for v in versions %}<option value="{{ v.run_id }}" {{ 'selected' if v.run_id == b }}>#{{ v.run_id }} ({{ v.run_time }}){{ ' [沙盒]' if v.is_sandbox else '' }}</option>{% endfor %}
     </select>
     <button class="btn btn-sm btn-primary"><i class="fas fa-sync"></i> 对比</button>
 </form>

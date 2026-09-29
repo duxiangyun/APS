@@ -10,6 +10,10 @@ What-if 沙盒模拟（规划功能 21）。
   （模型订单范围 norder 取该参数，不一致会静默漏单或 KeyError），
   求解结束后按快照删除注入行、还原被覆盖的参数；
 - 每次沙盒求解产生独立 run_id（res_solve_run 天然版本化），可与基线版本对比；
+  基线口径为「最近一次正式排产」：沙盒结果与正式结果同表且无来源标识列，
+  故以各场景 JSON 的 run_id 汇总出沙盒版本集合并从 MAX(run_id) 中排除，
+  避免连跑沙盒时把上一个沙盒当成基线（基线漂移）；
+- 基线缺失（从未正式排产）时拒绝启动沙盒，不静默以沙盒当基线；
 - 快照与恢复通过 _active.json 状态文件保证异常安全（服务重启后自动恢复）；
 - 不改动 Gurobi 模型定义：模型按 Order=range(1,norder+1) 数据驱动取数，只要插单的
   产品代码已在产品库（产品类物料 + 产品扩展）中即可被建模。
@@ -442,7 +446,45 @@ def ensure_params_restored() -> None:
     _restore_snapshot()
 
 
+def _sandbox_run_ids() -> set:
+    """从所有场景 JSON 汇总沙盒 run_id 集合（沙盒版本的唯一可识别来源）
+
+    res_solve_run 无来源标识列（不改 DDL），沙盒 run_id 的权威记录就是场景
+    文件里的 run_id 字段：求解器自己不知道自己在沙盒里跑，只有 whatif_service
+    在完成回调里把新版本号写回场景。单个文件损坏不应影响其他场景，故逐个 try。
+    """
+    ids: set[int] = set()
+    if not WHATIF_DIR.exists():
+        return ids
+    for f in WHATIF_DIR.glob("scenario_*.json"):
+        try:
+            rid = json.loads(f.read_text(encoding="utf-8")).get("run_id")
+            if rid is not None:
+                ids.add(int(rid))
+        except Exception:
+            continue
+    return ids
+
+
+def _latest_formal_run_id() -> int | None:
+    """最近一次「正式排产」的 run_id：排除所有沙盒版本
+
+    沙盒结果与正式结果同表（res_solve_run），若直接取 MAX(run_id)，连跑两个沙盒
+    时第二个场景的基线会变成第一个沙盒的产物，导致插单影响被二次叠加。
+    正确语义是「最近一次正式排产」，故这里取 MAX 并排除沙盒集合。
+    """
+    conn = _conn()
+    try:
+        rows = conn.execute("SELECT run_id FROM res_solve_run").fetchall()
+    finally:
+        conn.close()
+    sandbox = _sandbox_run_ids()
+    formal = [r[0] for r in rows if r[0] is not None and r[0] not in sandbox]
+    return max(formal) if formal else None
+
+
 def _latest_run_id() -> int | None:
+    """最近一次求解的 run_id（含沙盒），用于取本次沙盒自己产出的新版本号"""
     conn = _conn()
     try:
         row = conn.execute("SELECT MAX(run_id) FROM res_solve_run").fetchone()
@@ -475,7 +517,10 @@ def run_scenario(sid: str) -> dict:
         order_rows = _order_rows_by_ids(conn, order_ids)
     finally:
         conn.close()
-    baseline_run_id = _latest_run_id()
+    baseline_run_id = _latest_formal_run_id()
+    if baseline_run_id is None:
+        return {"started": False,
+                "message": "尚无正式排产结果可作为基线，请先在「计划优化」执行一次正式排产"}
     _write_active(sid, snapshot_rows, {"ids": order_ids, "rows": order_rows})
 
     # 2) 应用假设参数（UPDATE 数据行，复用 /params 校验与写入；无参数假设则跳过）
@@ -508,13 +553,16 @@ def run_scenario(sid: str) -> dict:
 
     def _on_finish(returncode: int):
         _restore_snapshot()
-        new_rid = _latest_run_id()
         sc2 = _load_scenario(sid)
-        if sc2:
-            sc2["status"] = "done" if returncode == 0 else "failed"
-            sc2["run_id"] = new_rid
-            sc2["finished_at"] = _now()
-            _save_scenario(sc2)
+        if not sc2:
+            return
+        sc2["status"] = "done" if returncode == 0 else "failed"
+        # 仅在求解成功（确有写库）时关联版本号：失败时求解器未写 res_solve_run，
+        # 此时 MAX(run_id) 是上一个版本，误记会把别人的版本算到本场景头上
+        if returncode == 0:
+            sc2["run_id"] = _latest_run_id()
+        sc2["finished_at"] = _now()
+        _save_scenario(sc2)
 
     res = start_solve(log_name=f"whatif_{sid}.log", on_finish=_on_finish)
     if not res.get("started"):

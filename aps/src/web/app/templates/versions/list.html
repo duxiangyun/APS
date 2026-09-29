@@ -10,7 +10,7 @@
         <tbody>
         {% for v in versions %}
         <tr>
-            <td class="fw-bold">#{{ v.run_id }}</td>
+            <td class="fw-bold">#{{ v.run_id }}{% if v.is_sandbox %} <span class="badge bg-warning text-dark" title="What-if 沙盒试算版本，非正式排产结果">沙盒</span>{% endif %}</td>
             <td>{{ v.run_time }}</td>
             <td><span class="badge {{ 'bg-success' if v.status == 'OPTIMAL' else 'bg-secondary' }}">{{ v.status }}</span></td>
             <td>{{ v.solve_time_s if v.solve_time_s is not none else '-' }}s</td>
@@ -27,5 +27,6 @@
         </tbody>
     </table>
 </div></div>
-<p class="text-muted small mt-2">提示：最新版本为 #{{ versions[0].run_id if versions else '-' }}；对比功能选择任意两个版本查看 KPI 差异。</p>
+<p class="text-muted small mt-2">提示：最新版本为 #{{ versions[0].run_id if versions else '-' }}；对比功能选择任意两个版本查看 KPI 差异。<br>
+带 <span class="badge bg-warning text-dark">沙盒</span> 标记的是 What-if 沙盒试算版本（由插单模拟生成，非正式排产结果，不作为新场景的对比基线）。</p>
 {% endblock %}

@@ -24,10 +24,14 @@ async def aps_request(
     *,
     params: dict[str, Any] | None = None,
     json_body: dict[str, Any] | None = None,
+    timeout: float = 60.0,
 ) -> Any:
-    """调用 APS 开放接口，非 2xx 抛出 APSApiError"""
+    """调用 APS 开放接口，非 2xx 抛出 APSApiError
+
+    timeout：单次请求超时秒数；长耗时接口（如 whatif 沙盒求解）需显式放大。
+    """
     url = f"{APS_BASE_URL}{path}"
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.request(method, url, params=params, json=json_body)
     if resp.status_code >= 400:
         try:
@@ -127,3 +131,58 @@ async def aps_md_resources(code: str = "", resource_type: str = "",
         "code": code, "type": resource_type,
         "page": page, "page_size": page_size,
     })
+
+
+# ---------------------------------------------------------------------------
+# What-if 沙盒接口（对应 aps /open/whatif/*，供 plan_whatif / simulate_insert_order）
+#   - 场景数据存 aps 侧 JSON 文件，沙盒运行时临时覆盖参数数据行与注入订单行，
+#     求解结束自动恢复，不改变数据库结构（详见 aps whatif_service 模块文档）
+#   - sid 为 aps 侧场景 ID（8 位十六进制字符串）
+#   - run 为同步阻塞接口：aps 侧轮询场景状态直至求解结束才返回
+# ---------------------------------------------------------------------------
+# whatif 求解超时（秒）：aps 侧 run 接口内部默认等待 900s、上限 1800s；
+# 客户端需留足余量，否则会在 aps 仍在求解时提前断开（场景会在 aps 侧跑完，
+# 可用 aps_whatif_scenarios 复查）。60s 为常规场景实测值的安全上界。
+_WHATIF_RUN_TIMEOUT = 600.0
+
+
+async def aps_whatif_scenarios(status: str = "all") -> dict:
+    """What-if 场景列表：status ∈ all/draft/running/done/failed（默认 all）"""
+    return await aps_request("GET", "/open/whatif/scenarios",
+                             params={"status": status})
+
+
+async def aps_whatif_create(name: str, orders: list[dict],
+                            overrides: dict | None = None,
+                            description: str = "") -> dict:
+    """创建 What-if 场景（含插单假设）
+
+    orders 每项必填：product_code / quantity / due_period / priority_level /
+    max_delay_allowed / delay_penalty（order_id 由 aps 侧按 MAX(order_id)+1 分配）。
+    成功返回 201 + 场景对象（含 id）；校验失败 400，detail 指出缺哪个字段或哪条记录。
+    """
+    body: dict[str, Any] = {"name": name, "orders": orders}
+    if description:
+        body["description"] = description
+    if overrides:
+        body["overrides"] = overrides
+    return await aps_request("POST", "/open/whatif/scenarios", json_body=body)
+
+
+async def aps_whatif_run(sid: str) -> dict:
+    """运行 What-if 场景：同步等待求解完成，返回 run_id / baseline_run_id
+
+    异常语义（非 2xx 抛 APSApiError）：
+      404 场景不存在 / 409 当前有求解任务在运行 / 504 aps 侧等待求解超时
+    """
+    return await aps_request("POST", f"/open/whatif/scenarios/{sid}/run",
+                             timeout=_WHATIF_RUN_TIMEOUT)
+
+
+async def aps_whatif_compare(a: int, b: int) -> dict:
+    """两个排产版本对比（a=基线 run_id，b=沙盒 run_id）：13 项 KPI
+
+    返回 kpi_a / kpi_b（原始数值）、diff（数值差 b-a）、rows（含格式化值、
+    direction 方向与 better 更优标记）。版本不存在返回 400。
+    """
+    return await aps_request("GET", "/open/whatif/compare", params={"a": a, "b": b})

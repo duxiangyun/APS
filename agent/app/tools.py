@@ -1049,6 +1049,149 @@ async def get_resource_master(code: str = "", type: str = "",  # noqa: A002 与 
 
 
 # ---------------------------------------------------------------------------
+# What-if 沙盒工具（13-14）：plan_whatif（只读） / simulate_insert_order（写）
+#   - 对应 aps /open/whatif/*；沙盒在 aps 侧运行，参数与订单行求解后自动恢复，
+#     不改变正式数据（见 aps whatif_service 模块文档）
+#   - simulate_insert_order 为写工具（readonly=False）：它在 aps 侧创建沙盒场景并
+#     触发一次真实求解（消耗算力、产生新 run），因此在角色白名单与提示词中需明确
+#     「执行前先与用户确认假设」
+#   - KPI 展示名与 key 的映射：aps 返回 key（profit / ontime_rate …），
+#     这里统一映射为业务中文名，便于 LLM 与用户直接解读
+# ---------------------------------------------------------------------------
+_KPI_LABELS = {
+    "orders": "订单总数",
+    "ontime_rate": "订单准交率",
+    "delayed": "延期订单数",
+    "undelivered": "未交付订单数",
+    "revenue": "销售收入",
+    "profit": "利润总额",
+    "penalty": "延期罚金",
+    "mfg_cost": "制造成本",
+    "out_cost": "外协费用",
+    "purchase_cost": "采购成本",
+    "inventory_cost": "库存成本",
+    "fixture_cost": "工装费用",
+    "infeasible_cost": "产能不足惩罚",
+}
+# 解读结论时优先关注的核心指标（按 key 匹配，兼容 aps label 的单位后缀差异）
+_WHATIF_FOCUS_KEYS = ("profit", "ontime_rate", "infeasible_cost", "revenue", "delayed")
+# 差值展示：整数/小数量级直出，超过万位加千分位，避免 %g 输出成 4.89842e+06
+def _fmt_delta(v) -> str:
+    """差值格式化：None → 无数据；整数直出；带千分位"""
+    if v is None:
+        return "无数据"
+    if float(v).is_integer():
+        return f"{int(v):+,}"
+    return f"{v:+.2f}"
+
+
+def _kpi_block(cmp: dict) -> dict:
+    """把 aps /open/whatif/compare 的响应转成 {中文名: {baseline,new,diff,unit}} 结构"""
+    ka, kb, diff = cmp.get("kpi_a") or {}, cmp.get("kpi_b") or {}, cmp.get("diff") or {}
+    block: dict[str, dict] = {}
+    for r in cmp.get("rows") or []:
+        key = r.get("key")
+        if not key:
+            continue
+        name = r.get("label") or _KPI_LABELS.get(key, key)
+        block[name] = {
+            "key": key,
+            "baseline": ka.get(key),
+            "new": kb.get(key),
+            "diff": diff.get(key),
+            "a_text": r.get("a"),
+            "b_text": r.get("b"),
+            "direction": r.get("direction"),
+            "better": r.get("better") or None,
+        }
+    return block
+
+
+def _kpi_summary_text(block: dict, baseline_id: int, new_id: int) -> str:
+    """生成 KPI 对比的中文摘要：先核心指标结论，再全量明细"""
+    focus, rest = [], []
+    for name, v in block.items():
+        line = (f"{name}：基线 {v['a_text']} → 沙盒 {v['b_text']}"
+                f"（差 {_fmt_delta(v['diff'])}）")
+        (focus if v.get("key") in _WHATIF_FOCUS_KEYS else rest).append(line)
+    tail = "\n".join(f"- {s}" for s in focus) or "（无核心指标数据）"
+    if rest:
+        tail += "\n其余指标：\n" + "\n".join(f"- {s}" for s in rest)
+    return (f"KPI 对比（基线版本 #{baseline_id} vs 沙盒版本 #{new_id}）：\n" + tail)
+
+
+async def plan_whatif(status: str = "all", limit: int = 20) -> dict:
+    """列出 aps 侧已有的 What-if 模拟场景（只读）。"""
+    data = await aps_client.aps_whatif_scenarios(status=status)
+    items = (data or {}).get("scenarios") or []
+    brief = [
+        {
+            "sid": s.get("id"),
+            "name": s.get("name"),
+            "status": s.get("status"),
+            "orders": s.get("orders") or [],
+            "order_count": len(s.get("orders") or []),
+            "baseline_run_id": s.get("baseline_run_id"),
+            "run_id": s.get("run_id"),
+            "created_at": s.get("created_at"),
+            "finished_at": s.get("finished_at"),
+        }
+        for s in items[:limit]
+    ]
+    lines = "\n".join(
+        f"- {b['sid']} | {b['name']} | 状态{b['status']} | 插单{b['order_count']}条"
+        f" | 基线#{b['baseline_run_id'] or '-'} 沙盒#{b['run_id'] or '-'}"
+        for b in brief)
+    return {
+        "summary": (f"What-if 场景共 {len(items)} 个（过滤={status}）"
+                    + (("：\n" + lines) if lines else "，暂无场景")),
+        "total": len(items), "status_filter": status, "scenarios": brief,
+    }
+
+
+async def simulate_insert_order(product_code: str, quantity: float, due_period: int,
+                                priority_level: int = 2, max_delay_allowed: int = 1,
+                                delay_penalty: float = 0.0) -> dict:
+    """插单模拟（写操作）：在 aps 沙盒中插入一张订单并重新求解，返回 KPI 对比。
+
+    流程：创建场景 → 触发求解（阻塞，通常数秒到数十秒）→ 与基线版本对比 13 项 KPI。
+    """
+    order = {
+        "product_code": product_code,
+        "quantity": _num(quantity),
+        "due_period": int(_num(due_period)),
+        "priority_level": int(_num(priority_level, 2)),
+        "max_delay_allowed": int(_num(max_delay_allowed, 1)),
+        "delay_penalty": _num(delay_penalty),
+    }
+    desc = (f"Agent 插单模拟：{product_code} × {order['quantity']:g}，"
+            f"交期第{order['due_period']}期，等级{order['priority_level']}，"
+            f"允许延期{order['max_delay_allowed']}期，罚金{order['delay_penalty']:g}")
+    created = await aps_client.aps_whatif_create(
+        name=f"Agent插单模拟-{product_code}", orders=[order], description=desc)
+    sid = created.get("id")
+    if not sid:
+        return {"summary": "场景创建成功但未返回 sid，无法继续模拟。", "error": True,
+                "created": created}
+
+    run = await aps_client.aps_whatif_run(sid)
+    baseline_id, new_id = run.get("baseline_run_id"), run.get("run_id")
+    if not new_id:
+        return {"summary": f"场景 {sid} 求解未返回 run_id，无法对比。", "error": True,
+                "sid": sid, "run": run}
+
+    cmp = await aps_client.aps_whatif_compare(baseline_id, new_id)
+    block = _kpi_block(cmp)
+    summary_text = _kpi_summary_text(block, baseline_id, new_id)
+    return {
+        "summary": f"插单模拟完成（场景 {sid}，基线版本 #{baseline_id} → 沙盒版本 #{new_id}）。\n"
+                   + summary_text,
+        "sid": sid, "run_id": new_id, "baseline_run_id": baseline_id,
+        "orders": [order], "kpi_diff": block, "summary_text": summary_text,
+    }
+
+
+# ---------------------------------------------------------------------------
 # 工具注册 & 调度
 #   - 每个工具有明确的 JSON Schema（OpenAI function calling 格式）
 #   - execute_tool 记录日志：session_id / 工具名 / 参数 / 耗时 / 结果摘要
@@ -1216,6 +1359,52 @@ TOOL_META: dict[str, dict] = {
         "required": [],
         "readonly": True,
     },
+    "plan_whatif": {
+        "description": (
+            "查询已有的 What-if 模拟场景（沙盒试算），返回每个场景的 ID、状态、"
+            "插单内容、基线版本号与沙盒版本号。用于回答「之前模拟过什么」「有哪些插单方案」"
+            "这类问题本身不发起新的求解。"
+        ),
+        "parameters": {
+            "status": {"type": "string",
+                       "description": "状态过滤：all（默认）/ draft / running / done / failed"},
+            "limit": {"type": "integer", "description": "最多返回条数，默认 20，上限 100"},
+        },
+        "required": [],
+        "readonly": True,
+    },
+    "simulate_insert_order": {
+        "description": (
+            "【写操作，会触发一次真实排产求解，通常耗时数秒到数十秒】"
+            "插单模拟：假设在当前计划中紧急插入一张订单，重新求解后与基线版本做 13 项 KPI 对比"
+            "（收入/利润/准交率/产能不足惩罚/延期罚金等），用于回答"
+            "「如果插单 XX 产品 N 个会怎样」「插单对利润和准交率影响多大」。"
+            "调用前必须先向用户确认插单假设（产品、数量、交期、优先级、允许延期、罚金）。"
+            "【重要】当前系统不支持订单级插单明细（无法给出哪些具体订单受影响）："
+            "1) 不要主动询问用户是否需要订单级明细；"
+            "2) 若用户问「哪些订单受影响/哪些订单延期了/哪张订单被挤占」，"
+            "必须明确告知：「当前版本的插单模拟只提供 KPI 汇总级影响"
+            "（收入/利润/准交率/延期订单数等），不支持列出具体的受影响订单，"
+            "订单级明细功能开发中。」；"
+            "3) 严禁用 get_orders / explain_delay / get_schedule 等工具拼凑订单级插单影响分析——"
+            "这些工具返回的是「当前排产结果」，不是「插单前后对比」；"
+            "同样也不要建议或引导用户自行用这些工具查看、逐单归因，"
+            "只说明「不支持订单级明细，功能开发中」即可，不要给出任何替代查询路径。"
+        ),
+        "parameters": {
+            "product_code": {"type": "string",
+                             "description": "产品编码（必填），必须是产品库中已维护的产品类物料"},
+            "quantity": {"type": "number", "description": "订单数量（必填），须大于 0"},
+            "due_period": {"type": "integer", "description": "交期期次（必填），取值 1~12"},
+            "priority_level": {"type": "integer",
+                               "description": "订单优先级：1（高）/ 2（中，默认）/ 3（低）"},
+            "max_delay_allowed": {"type": "integer",
+                                  "description": "允许延期期数：0~3，默认 1"},
+            "delay_penalty": {"type": "number", "description": "延期罚金，默认 0"},
+        },
+        "required": ["product_code", "quantity", "due_period"],
+        "readonly": False,
+    },
 }
 
 # 函数实现映射
@@ -1233,6 +1422,9 @@ TOOL_FN: dict[str, Any] = {
     "get_bom": get_bom,
     "get_routing": get_routing,
     "get_resource_master": get_resource_master,
+    # What-if 沙盒工具
+    "plan_whatif": plan_whatif,                    # 只读
+    "simulate_insert_order": simulate_insert_order,  # 写（readonly=False）
 }
 
 # 可用工具名集合（供 routes.py /skills 校验用）

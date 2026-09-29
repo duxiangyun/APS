@@ -22,8 +22,31 @@ _solve_lock = threading.Lock()
 # ---------------------------------------------------------------------------
 # 通用
 # ---------------------------------------------------------------------------
+def _sandbox_run_ids_of_scenarios() -> set:
+    """沙盒版本 run_id 集合（来自 whatif 场景 JSON；惰性 import 破循环依赖）
+
+    whatif_service 在模块级 import 本模块，故只能函数内按需加载；
+    沙盒模块不可用时退回空集合，等价于「不排除沙盒」，保持既有行为。
+    """
+    try:
+        from app.services.whatif_service import _sandbox_run_ids
+        return _sandbox_run_ids()
+    except Exception:
+        return set()
+
+
 def _latest_run_id(conn: sqlite3.Connection):
-    row = conn.execute("SELECT MAX(run_id) FROM res_solve_run").fetchone()
+    """最近一次「正式排产」的 run_id（排除 What-if 沙盒版本）
+
+    沙盒求解结果与正式结果同表 res_solve_run（无来源标识列，不改 DDL），而沙盒
+    run_id 由场景 JSON 记录。此处排除这些沙盒版本，避免「当前结果」/计划版本页
+    把沙盒试算当成正式排产、也避免新沙盒把上一个沙盒当基线。
+    """
+    sandbox = _sandbox_run_ids_of_scenarios()
+    row = conn.execute(
+        "SELECT MAX(run_id) FROM res_solve_run WHERE run_id NOT IN (%s)"
+        % (",".join("?" * len(sandbox)) if sandbox else "NULL"),
+        tuple(sandbox)).fetchone()
     return row[0] if row and row[0] is not None else None
 
 
@@ -754,6 +777,7 @@ def get_order_kitting(conn: sqlite3.Connection) -> dict:
 # 计划版本：列表与对比
 # ---------------------------------------------------------------------------
 def get_versions(conn: sqlite3.Connection) -> list[dict]:
+    """计划版本列表：沙盒版本与正式版本同表，按 is_sandbox 标识供前端区分"""
     rows = conn.execute(
         """SELECT r.run_id, r.run_time, r.status, r.solve_time_ms, r.mip_gap,
                   r.objective, r.nperiod,
@@ -762,8 +786,10 @@ def get_versions(conn: sqlite3.Connection) -> list[dict]:
            LEFT JOIN res_summary s ON s.run_id = r.run_id
            ORDER BY r.run_id DESC"""
     ).fetchall()
+    sandbox_ids = _sandbox_run_ids_of_scenarios()
     return [{
         "run_id": r["run_id"], "run_time": r["run_time"], "status": r["status"],
+        "is_sandbox": r["run_id"] in sandbox_ids,   # 沙盒试算版本（whatif 场景产物）
         "solve_time_s": round(r["solve_time_ms"] / 1000, 1) if r["solve_time_ms"] else None,
         "mip_gap_pct": round(r["mip_gap"] * 100, 2) if r["mip_gap"] is not None else None,
         "objective": round(r["objective"], 0) if r["objective"] is not None else None,

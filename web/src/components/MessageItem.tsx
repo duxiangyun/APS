@@ -1,8 +1,15 @@
 /** 单条消息：Markdown 渲染 + 工具调用折叠卡片 */
 import { Alert, Spin } from "antd";
 import ReactMarkdown from "react-markdown";
+// GFM 扩展：表格 / 删除线 / 自动链接 / 任务列表。
+// react-markdown 默认仅 CommonMark，缺此插件时 `| a | b |` 会被当作普通段落文本，
+// 表现为所有竖线挤在一行。
+import remarkGfm from "remark-gfm";
 import type { ChatItem } from "../types";
 import ToolCallCard from "./ToolCallCard";
+
+/** 渲染选项：GFM 表格等扩展在此统一开启 */
+const REMARK_PLUGINS = [remarkGfm];
 
 export default function MessageItem({ item }: { item: ChatItem }) {
   const isUser = item.kind === "user";
@@ -22,7 +29,7 @@ export default function MessageItem({ item }: { item: ChatItem }) {
             <div className="plain-text">{item.content}</div>
           ) : (
             <div className="markdown">
-              <ReactMarkdown>{item.content}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{item.content}</ReactMarkdown>
             </div>
           )
         ) : null}
