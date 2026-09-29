@@ -1,0 +1,14 @@
+{
+  "id": "cef1f1fc",
+  "name": "1",
+  "description": "",
+  "overrides": {
+    "SHIFT_DURATION_MINUTES": "500"
+  },
+  "status": "done",
+  "created_at": "2026-09-07 14:38:38",
+  "started_at": "2026-09-28 15:01:50",
+  "baseline_run_id": 44,
+  "run_id": 45,
+  "finished_at": "2026-09-28 15:01:59"
+}

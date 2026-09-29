@@ -1,0 +1,22 @@
+{
+  "id": "020f3f52",
+  "name": "紧急插单模拟：MN-TM4C1A20个",
+  "description": "紧急插单模拟：MN-TM4C1A20个交期为2等级为1不允许延期延期罚金为100",
+  "overrides": {},
+  "orders": [
+    {
+      "product_code": "MN-TM4C1A",
+      "quantity": 20.0,
+      "due_period": 2,
+      "priority_level": 1,
+      "max_delay_allowed": 0,
+      "delay_penalty": 100.0
+    }
+  ],
+  "status": "done",
+  "created_at": "2026-09-28 15:01:40",
+  "started_at": "2026-09-28 16:26:09",
+  "baseline_run_id": 46,
+  "run_id": 47,
+  "finished_at": "2026-09-28 16:26:14"
+}

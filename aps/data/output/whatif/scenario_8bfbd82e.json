@@ -1,0 +1,22 @@
+{
+  "id": "8bfbd82e",
+  "name": "基线修复验证A",
+  "description": "",
+  "overrides": {},
+  "orders": [
+    {
+      "product_code": "MN-TM4C1A",
+      "quantity": 20.0,
+      "due_period": 2,
+      "priority_level": 2,
+      "max_delay_allowed": 1,
+      "delay_penalty": 100.0
+    }
+  ],
+  "status": "done",
+  "created_at": "2026-09-29 03:35:16",
+  "started_at": "2026-09-29 03:35:32",
+  "baseline_run_id": 50,
+  "run_id": 57,
+  "finished_at": "2026-09-29 03:35:41"
+}

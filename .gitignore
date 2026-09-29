@@ -27,7 +27,11 @@ aps/aps_server.pid
 aps/data/agent_config.json
 
 # Result Excel files are regenerated per run
-aps/data/output/
+# 忽略 output 下所有产物，仅保留沙盒场景 JSON（baseline 识别依赖）
+aps/data/output/*
+!aps/data/output/whatif/
+aps/data/output/whatif/*
+!aps/data/output/whatif/scenario_*.json
 
 # Archived legacy code (kept locally only)
 archive/
@@ -36,8 +40,8 @@ archive/
 .trae/
 
 # Output files - keep only reference results
-Output/
-!Output/APS-JD-result-参考结果.xls
+/Output/
+!/Output/APS-JD-result-参考结果.xls
 
 # Excel2DB output files
 Excel2DB/Output/
